@@ -22,11 +22,6 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
-try:
-    import matplotlib.pyplot as plt
-except Exception:
-    plt = None
-
 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
@@ -227,16 +222,17 @@ def main():
         print("warning: output reached limiter / full scale")
 
     if args.plot:
-        if plt is None:
-            raise RuntimeError("matplotlib is not available")
-        n = min(len(audio), fs // 2)
+        import matplotlib.pyplot as plt
+
+        plot_audio = audio if audio.ndim > 1 else np.column_stack([audio, audio])
+        n = min(len(plot_audio), fs // 2)
         t = np.arange(n) / fs
         fig, ax = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
-        ax[0].plot(t, audio[:n, 0], label="input L")
+        ax[0].plot(t, plot_audio[:n, 0], label="input L")
         ax[0].plot(t, out[:n, 0], label="output L", alpha=0.8)
         ax[0].legend()
         ax[0].set_title("OCX Type 2 decoder simulation")
-        ax[1].plot(t, audio[:n, 1], label="input R")
+        ax[1].plot(t, plot_audio[:n, 1], label="input R")
         ax[1].plot(t, out[:n, 1], label="output R", alpha=0.8)
         ax[1].legend()
         ax[1].set_xlabel("seconds")
