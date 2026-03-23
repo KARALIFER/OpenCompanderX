@@ -222,10 +222,6 @@ def main():
         print("warning: output reached limiter / full scale")
 
     if args.plot:
-        import matplotlib.pyplot as plt
-
-        plot_audio = audio if audio.ndim > 1 else np.column_stack([audio, audio])
-        n = min(len(plot_audio), fs // 2)
         t = np.arange(n) / fs
         fig, ax = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
         ax[0].plot(t, plot_audio[:n, 0], label="input L")
