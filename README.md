@@ -9,7 +9,6 @@
 
 This firmware is a practical real-time stereo decoder foundation for your ordered hardware.
 It is intentionally conservative and tunable.
-It is not presented as a reference-perfect clone of any vintage hardware unit.
 
 ## Arduino / Teensy upload steps
 
