@@ -2,8 +2,6 @@
 
 Dieses Repository enthält einen robusten **Type-II-compander-decoder** für eine feste Zielhardware:
 
-> Stand dieses Branches: auf Basis des aktuellen `main`-Inhalts zusammengeführt und konfliktfrei gehalten.
-
 - Teensy 4.1
 - PJRC Teensy Audio Adaptor Rev D/D2 (SGTL5000)
 - analog stereo line-in
