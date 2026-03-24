@@ -81,3 +81,9 @@ git commit -m "Resolve merge conflicts by taking branch versions for docs/harnes
 Wenn einer der Pflichtchecks nach `take-branch` rot wird:
 - **kein globales rollback**, sondern genau den betroffenen Hunk manuell aus Main übernehmen.
 - danach denselben Check erneut laufen lassen.
+
+## Sofort-Variante (ein Befehl)
+
+```bash
+./resolve_merge_conflicts.sh
+```
