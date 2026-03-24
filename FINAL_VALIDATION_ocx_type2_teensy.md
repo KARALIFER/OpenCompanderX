@@ -1,5 +1,7 @@
 # OpenCompanderX – OCX Type 2 Validation Report
 
+> Dieser Report bezieht sich auf den konfliktfrei zusammengeführten Stand auf `main`-Basis.
+
 ## 1) Ehrlichkeitsgrenze
 
 Dieser Stand liefert **Build-/Offline-Messbarkeit**, aber keine Referenz- oder Bitexact-Behauptung.

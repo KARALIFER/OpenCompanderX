@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Automated offline validation harness for the OCX Type 2 decoder."""
+"""Automated offline validation harness for the OCX Type 2 decoder.
+
+Merged and kept conflict-free against the current main-based repository state.
+"""
 
 from __future__ import annotations
 
