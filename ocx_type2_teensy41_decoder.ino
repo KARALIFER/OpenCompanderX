@@ -37,8 +37,9 @@ static constexpr float kDeemphDb = -6.0f;
 static constexpr float kSoftClipDrive = 1.08f;
 static constexpr float kDcBlockHz = 12.0f;
 static constexpr float kHeadroomDb = 1.0f;
-static constexpr float kToneHz = 1000.0f;
-static constexpr float kToneDb = -18.0f;
+// Calibration tone defaults are deck/workflow calibration parameters, not decoder model reference.
+static constexpr float kToneHz = 400.0f;
+static constexpr float kToneDb = -9.8f;
 }
 
 static inline float clampf(float x, float lo, float hi) {

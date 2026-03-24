@@ -59,6 +59,23 @@ Aktueller Stand `ocx_type2_universal_v2`:
 - `decoder.soft_clip_drive = 1.08`
 - `decoder.dc_block_hz = 12.0`
 - `decoder.headroom_db = 1.0`
+- `tone.frequency_hz = 400.0`
+- `tone.level_dbfs = -9.8`
+
+## Kalibrierpegel vs. Decoder-Referenz (bewusst getrennt)
+
+- `tone.level_dbfs` ist der **Kalibrier-Testtonpegel** für den realen Deck-/Band-Abgleich.
+- `decoder.reference_db` ist ein **interner Modellparameter** der Decoder-Regelung.
+
+Aktueller Hardware-Bezugspunkt für das hier dokumentierte Nutzer-Setup
+(Mixtape Nerd + TEAC W-1200 + RTM-Band):
+
+- 0 VU / Tape-Referenz liegt praktisch bei ca. **-9.8 dBFS** (rundbar auf -10 dBFS).
+- Deshalb steht der Default-Testton bei **400 Hz @ -9.8 dBFS**.
+- Das ist ein **Setup-spezifischer Messwert**, kein universeller historischer dbx-Standard.
+
+`decoder.reference_db` bleibt vorerst bei `-18.0`, bis Simulator-/Harness-/Hardwarevergleich
+eine belastbare, getrennte Umstellung dieses Modellparameters rechtfertigt.
 
 ## Methodik: digitale Referenz vs. analoges Ziel
 
@@ -137,15 +154,18 @@ Empfohlener realer Hardware-Ablauf:
 
 1. Booten und per `0` Factory-Preset laden.
 2. Mit `X` Clip-/Runtime-Zähler und Maxima zurücksetzen.
-3. Definierte Testquelle abspielen (mehrere Minuten).
-4. Mit `m` zyklisch kompakten Status lesen, mit `p` Vollstatus prüfen.
-5. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
+3. Kalibrierung: 400-Hz-Testton bei `tone.level_dbfs=-9.8` einspeisen und auf den
+   eigenen 0-VU-/Ref.-Punkt des Deck-Workflows abgleichen.
+4. Definierte Testquelle abspielen (mehrere Minuten).
+5. Mit `m` zyklisch kompakten Status lesen, mit `p` Vollstatus prüfen.
+6. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
 
 Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` neben den Clip-/Alloc-Zählern.
 
 ## Testkassetten-Methodik
 
-- **Kassette A (nicht compandiert, Grundreferenz):** 400 Hz, 1 kHz, 10 kHz, 3.15 kHz für Pegel/Kanalgleichheit/HF-/Azimuth/Speed.
+- **Kassette A (nicht compandiert, Grundreferenz):** 400 Hz (hier: -9.8 dBFS als
+  Setup-spezifischer 0-VU-Bezug), 1 kHz, 10 kHz, 3.15 kHz für Pegel/Kanalgleichheit/HF-/Azimuth/Speed.
 - **Kassette B (Type-II encodiert, Decoder-Tuning):** Mehrpegel-1-kHz, Bursts, Envelope-Steps, Pink/White Noise, Sweep, Bass+HF, Musik.
 - Immer genau ein Type-II-Encoding-Pfad verwenden (keine Doppel-Encodierung).
 
