@@ -97,6 +97,8 @@ class Params:
     soft_clip_drive: float
     dc_block_hz: float
     headroom_db: float
+    detector_mode: str = "energy"
+    detector_rms_ms: float = 6.0
     bypass: bool = False
 
     @classmethod
@@ -214,6 +216,9 @@ class Decoder:
         self.deemph = [design_high_shelf(self.fs, params.deemph_hz, params.deemph_db) for _ in range(2)]
         self.dc_block = [OnePoleHP(self.fs, params.dc_block_hz) for _ in range(2)]
         self.env2 = np.full(2, 1.0e-9, dtype=np.float64)
+        self.detector_env2 = np.full(2, 1.0e-9, dtype=np.float64)
+        self.detector_mode = str(params.detector_mode).strip().lower()
+        self.rms_coeff = math.exp(-1.0 / max(self.fs * params.detector_rms_ms * 0.001, 1.0))
         self.input_clip = np.zeros(2, dtype=np.bool_)
         self.output_clip = np.zeros(2, dtype=np.bool_)
 
@@ -222,6 +227,7 @@ class Decoder:
             for f in bank:
                 f.reset()
         self.env2[:] = 1.0e-9
+        self.detector_env2[:] = 1.0e-9
         self.input_clip[:] = False
         self.output_clip[:] = False
 
@@ -245,6 +251,11 @@ class Decoder:
             sc = self.sc_hp[ch].process(x0)
             sc = self.sc_shelf[ch].process(sc)
             p = sanitize_scalar(sc * sc, 0.0, 1.0e12)
+            if self.detector_mode == "rms":
+                self.detector_env2[ch] = sanitize_scalar(
+                    self.rms_coeff * self.detector_env2[ch] + (1.0 - self.rms_coeff) * p, 0.0, 1.0e12
+                )
+                p = self.detector_env2[ch]
             coeff = self.attack_coeff if p > self.env2[ch] else self.release_coeff
             self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * p, 0.0, 1.0e12)
             env = math.sqrt(self.env2[ch] + 1.0e-12)

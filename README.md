@@ -16,6 +16,7 @@ Aktuell im Repo verifizierbar:
   - **referenzlose Stabilitäts-/Plausibilitätsbewertung** (Clipping, Kanalabweichung, Ballistik-/Pump-Indikatoren, spektrale Verfärbung, Transientenverlust, Soft-Clip-Abhängigkeit)
   - **optionale Referenzbewertung** (nur wenn echte Referenzdateien vorhanden sind).
 - Tuning verwendet eine **zweistufige Suche**: schnelle Grobselektion (z. B. 4 kHz) plus finales Re-Ranking bei **44.1 kHz**.
+- Simulator kann zusätzlich einen **RMS-näheren Detectorpfad** (`detector_mode=rms`) gegen den bisherigen energy-nahen Pfad vergleichen.
 
 Nicht offline beweisbar (nur echte Hardware):
 
@@ -83,6 +84,7 @@ Für Black-Box-Referenzvergleich gilt:
 - Referenzdateien werden längenangepasst verglichen.
 - MSE/MAE/Korrelation/Frequenz-/Transientenvergleich werden separat als Referenzscore erfasst.
 - Ohne Referenz wird **keine** Referenznähe behauptet.
+- Optionale Hilfen wie Play Trim, Azimuth-Korrektur, Gap-Loss-Kompensation oder EQ-Konvertierung (IEC 120 µs <-> 70 µs) gelten als Referenzpfad-Hilfen, nicht als implizite OCX-Kernlogik.
 
 ## Lokale Checks
 
@@ -108,6 +110,9 @@ python ocx_type2_harness.py --override strength=0.80 --override release_ms=160
 
 # Zweistufiges Tuning: coarse (4 kHz) + final (44.1 kHz)
 python ocx_type2_harness.py --tune --tune-fs 4000 --tune-final-fs 44100 --tune-top-k 6
+
+# Detector-Methodikvergleich (energy vs. RMS-näher)
+python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detector
 ```
 
 ## Hardware-Telemetrie und Auswertung
@@ -126,6 +131,20 @@ Telemetrie-Bedeutung:
 - `allocFailCount` -> Audio-Block-Allokation fehlgeschlagen (muss 0 bleiben)
 - `inputClipCount` -> Frontend/Decoder-Eingang übersteuert
 - `outputClipCount` -> Ausgangspfad übersteuert
+
+Empfohlener realer Hardware-Ablauf:
+
+1. Booten und per `0` Factory-Preset laden.
+2. Mit `X` Clip-/Runtime-Zähler und Maxima zurücksetzen.
+3. Definierte Testquelle abspielen (mehrere Minuten).
+4. Mit `m` zyklisch kompakten Status lesen, mit `p` Vollstatus prüfen.
+5. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
+
+## Testkassetten-Methodik
+
+- **Kassette A (nicht compandiert, Grundreferenz):** 400 Hz, 1 kHz, 10 kHz, 3.15 kHz für Pegel/Kanalgleichheit/HF-/Azimuth/Speed.
+- **Kassette B (Type-II encodiert, Decoder-Tuning):** Mehrpegel-1-kHz, Bursts, Envelope-Steps, Pink/White Noise, Sweep, Bass+HF, Musik.
+- Immer genau ein Type-II-Encoding-Pfad verwenden (keine Doppel-Encodierung).
 
 ## Claims
 
