@@ -18,6 +18,7 @@ namespace OCXProfile {
 static constexpr float kFs = AUDIO_SAMPLE_RATE_EXACT;
 static constexpr int kAudioMemoryBlocks = 64;
 
+static constexpr int kLineInLevel = 0;
 static constexpr int kLineOutLevel = 29;
 static constexpr float kHeadphoneVolume = 0.45f;
 static constexpr float kInputTrimDb = -3.0f;
@@ -279,6 +280,7 @@ private:
     if (fabsf(x) > 0.98f) inputClipFlag = true;
 
     if (bypass) {
+      // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
       float y = clampf(softClip(x * outputGain * headroomGain, softClipDrive), -1.0f, 1.0f);
       if (fabsf(y) > 0.98f) outputClipFlag = true;
       return y;

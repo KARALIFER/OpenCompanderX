@@ -9,6 +9,16 @@ from pathlib import Path
 
 import numpy as np
 
+from ocx_type2_wav_sim import (
+    PROFILE_PATH,
+    Decoder,
+    Params,
+    db_to_lin,
+    ensure_stereo,
+    read_audio,
+    summarize_signal,
+    write_audio,
+)
 
 
 def frame_rms(x: np.ndarray, frame: int = 1024, hop: int = 512) -> np.ndarray:
@@ -30,14 +40,24 @@ def correlation(a: np.ndarray, b: np.ndarray) -> float:
 def spectral_delta_db(a: np.ndarray, b: np.ndarray) -> float:
     a_mono = np.mean(a, axis=1)
     b_mono = np.mean(b, axis=1)
-    A = np.fft.rfft(a_mono * np.hanning(len(a_mono)))
-    B = np.fft.rfft(b_mono * np.hanning(len(b_mono)))
+    n = min(len(a_mono), len(b_mono))
+    if n == 0:
+        return 0.0
+    a_mono = a_mono[:n]
+    b_mono = b_mono[:n]
+    A = np.fft.rfft(a_mono * np.hanning(n))
+    B = np.fft.rfft(b_mono * np.hanning(n))
     mag_a = 20.0 * np.log10(np.maximum(np.abs(A), 1.0e-12))
     mag_b = 20.0 * np.log10(np.maximum(np.abs(B), 1.0e-12))
     return float(np.sqrt(np.mean(np.square(mag_b - mag_a))))
 
 
 def transient_delta(a: np.ndarray, b: np.ndarray) -> float:
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    a = a[:n]
+    b = b[:n]
     da = np.diff(a, axis=0, prepend=a[:1])
     db = np.diff(b, axis=0, prepend=b[:1])
     return float(np.max(np.abs(db - da)))
@@ -57,18 +77,57 @@ def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
     }
 
 
+def align_lengths(*arrays: np.ndarray) -> list[np.ndarray]:
+    valid = [a for a in arrays if a is not None]
+    n = min(len(a) for a in valid) if valid else 0
+    aligned = []
+    for a in arrays:
+        aligned.append(None if a is None else a[:n])
+    return aligned
 
-        })
+
+def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | None]:
+    inp = ensure_stereo(inp)
+    out = ensure_stereo(out)
+    inp_a, out_a, ref_a = align_lengths(inp, out, ref)
+
+    residual = out_a - inp_a
+    metrics: dict[str, float | None] = {
+        "residual_rms": float(np.sqrt(np.mean(np.square(residual)))),
+        **gain_curve_stats(inp_a, out_a),
+        "mse": float(np.mean(np.square(residual))),
+        "mae": float(np.mean(np.abs(residual))),
+        "max_abs_error": float(np.max(np.abs(residual))),
+        "correlation": correlation(inp_a, out_a),
+        "freq_response_delta_db": spectral_delta_db(inp_a, out_a),
+        "transient_delta": transient_delta(inp_a, out_a),
+    }
+
+    if ref_a is not None:
+        diff = out_a - ref_a
+        metrics.update(
+            {
+                "mse_vs_reference": float(np.mean(np.square(diff))),
+                "mae_vs_reference": float(np.mean(np.abs(diff))),
+                "max_abs_error_vs_reference": float(np.max(np.abs(diff))),
+                "correlation_vs_reference": correlation(out_a, ref_a),
+                "null_residual_rms_vs_reference": float(np.sqrt(np.mean(np.square(diff)))),
+                "freq_response_delta_db_vs_reference": spectral_delta_db(out_a, ref_a),
+                "transient_delta_vs_reference": transient_delta(out_a, ref_a),
+            }
+        )
     else:
-        metrics.update({
-            "mse_vs_reference": None,
-            "mae_vs_reference": None,
-            "max_abs_error_vs_reference": None,
-            "correlation_vs_reference": None,
-            "null_residual_rms_vs_reference": None,
-            "freq_response_delta_db_vs_reference": None,
-            "transient_delta_vs_reference": None,
-        })
+        metrics.update(
+            {
+                "mse_vs_reference": None,
+                "mae_vs_reference": None,
+                "max_abs_error_vs_reference": None,
+                "correlation_vs_reference": None,
+                "null_residual_rms_vs_reference": None,
+                "freq_response_delta_db_vs_reference": None,
+                "transient_delta_vs_reference": None,
+            }
+        )
     return metrics
 
 
@@ -194,10 +253,12 @@ def main() -> None:
         decoder = Decoder(fs, params)
         out = decoder.process(inp)
         ref = None
-        ref_path = args.reference_dir / f"{name}.wav" if args.reference_dir else None
-        if ref_path and ref_path.exists():
-            ref_fs, ref_audio = read_audio(ref_path)
-            if ref_fs == fs:
+        if args.reference_dir:
+            ref_path = args.reference_dir / f"{name}.wav"
+            if ref_path.exists():
+                ref_fs, ref_audio = read_audio(ref_path)
+                if ref_fs == fs:
+                    ref = ref_audio
 
         metrics = {
             "case": name,
@@ -220,10 +281,8 @@ def main() -> None:
         import pandas as pd
 
         pd.DataFrame(results).to_csv(args.out_dir / "metrics.csv", index=False)
-    except Exception:
+    except ImportError:
         pass
-
-
 
 
 if __name__ == "__main__":
