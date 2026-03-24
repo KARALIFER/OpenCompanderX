@@ -1,61 +1,107 @@
-# OpenCompanderX – OCX Type 2 Validierungsstand
+# OpenCompanderX – OCX Type 2 Validierungsstand (Phase 2)
 
 ## Scope
 
 Dieser Stand dokumentiert nur das, was im Repository praktisch geprüft werden konnte.
-Er trennt klar zwischen:
+Die Methodik trennt strikt:
 
-- Build-/Code-Validierung im Repo
-- Offline-Simulation/Regression
-- Hardware-only Themen
+1. **Referenzlose Stabilitäts-/Plausibilitätsbewertung** (offline)
+2. **Black-Box-Referenzvergleich** (offline, nur mit Referenzdateien)
+3. **Analoge Laufzeitvalidierung auf echter Teensy-/SGTL5000-Hardware**
 
-## Reparierte Kernprobleme
+## Phase-2-Ergebnisüberblick
 
-1. Profil/Firmware-Sync war defekt (`codec.line_in_level` fehlte).
-2. Simulatordatei war trunkiert und nicht lauffähig.
-3. Harness war trunkiert und Referenzvergleich unrobust.
-4. Tests waren unvollständig/inkonsistent.
-5. `.gitignore` deckte Harness-Artefakte nicht vollständig ab.
-6. Dokumentation war weiter als der tatsächliche Codezustand.
-7. Firmware-Telemetrie war für CPU/RAM/Allocate-Stabilität nicht explizit auswertbar.
-8. Harness deckte mehrere praxisnahe Stressfälle und Bewertungslogik nicht systematisch ab.
+- Score-Logik bewertet ohne Referenz nicht mehr primär „Input möglichst ähnlich“.
+- Tuning läuft zweistufig: **coarse low-rate** + **final 44.1-kHz Re-Ranking**.
+- Referenzpfad ist im Harness sauber getrennt modelliert.
+- Firmware-Telemetrie ist kompakt (`m`) und als Hardware-Testablauf interpretierbar dokumentiert.
+- Universalprofil bleibt konservativ (`ocx_type2_universal_v2`), ohne Über-Claims.
 
-## Tatsächlich ausgeführte Checks
+## Methodikdetails
 
-- Konfliktmarker-Suche
-- `git diff --check`
-- Python-Compile-Checks für Simulator/Harness/Tests
-- `pytest -q`
-- `pio run -e teensy41`
-- `python ocx_type2_harness.py --out-dir artifacts/harness`
+## A) Referenzlose Bewertung (Plausibilität/Stabilität)
 
-## Ergebnis
+Bewertet werden u. a.:
 
-- Firmware ist buildbar.
-- Profil/Firmware/Simulator sind synchron.
-- Simulator und Harness sind vollständig ausführbar; Simulator akzeptiert Decoder-Overrides.
-- Harness enthält zusätzliche Stressfälle (u. a. HF-Burst-Züge, Bass+HF, schnelle Pegelwechsel, Transientenzug) und berechnet einen Straf-Score.
-- Tests prüfen zentrale Robustheitsanforderungen inkl. 44.1-kHz-Fall, Mono/Stereo-Shape-Handling, Referenz-Längenangleichung und Profil/Firmware-Sync.
-- Firmware bietet auslesbare Telemetrie: CPU now/max, AudioMemory now/max, Clip-Zähler, Allocate-Fail-Zähler.
+- Output-Clipping
+- Kanalabweichung
+- Gain-Kurven-Streuung und Gain-Sprünge (Ballistik-/Pump-Indikatoren)
+- starke spektrale Verfärbung
+- starke Transientenzerstörung
+- übermäßige Soft-Clip-Abhängigkeit
+- unplausible Reaktion über unterschiedliche Eingangspegel
 
-## Aktuell empfohlenes Universalprofil
+Nicht als Primärziel: maximale Input-Ähnlichkeit.
 
-- Profilname: `ocx_type2_universal_v2`
-- `codec.line_in_level = 0` bleibt konservativer Default (mehr Analog-Headroom gegen heiße Portable-/Consumer-Line-Outs).
-- Profil ist als robuster Universal-Kompromiss zu verstehen, nicht als „optimal“.
+## B) Referenzvergleich (optional)
 
-## Parameterabstimmung (offline)
+Wenn Referenzdateien vorhanden sind:
 
-- Das Harness enthält eine Score-Funktion, die Kandidaten bei Clipping, Kanalabweichung, Spektralabweichung, Transientenfehlern und instabiler Gain-Reaktion bestraft.
-- Damit ist reproduzierbare A/B-Bewertung möglich; der Score ersetzt keine reale Hör- und Hardwaremessung.
-- Ein kompakter Tuning-Modus ist vorhanden, aber rechenintensiv; für reale Nutzung auf kleine Suchräume/Subset-Cases begrenzen.
+- Längenabgleich auf gemeinsame Mindestlänge
+- getrennte Referenzmetriken (`*_vs_reference`)
+- separater Referenzscore zusätzlich zum Plausibilitätsscore
 
-## Weiterhin nur mit echter Hardware verifizierbar
+Ohne Referenzdateien wird keine Referenznähe behauptet.
 
-- Endgültiges analoges Pegelverhalten und Noise/Hum.
-- Feintuning des Universalprofils gegen reale Zuspieler.
-- Subjektive Qualitätsbewertung mit realem Material.
+## C) Zweistufige Abstimmung
 
-## Ehrlichkeitsregel
+1. **Grobselektion** bei kleiner Rate (Default `tune_fs=4000`) zur Laufzeitreduktion
+2. **Finales Re-Ranking** bei `tune_final_fs=44100` für finale Entscheidung
 
-Keine Bit-Exact-Claims. Keine Referenzgleichheits-Claims ohne reale Referenzmessung.
+Eine finale Profilentscheidung darf nicht nur aus 4-kHz-Sweeps abgeleitet werden.
+
+## Referenzpfad vs. Zielpfad
+
+### Digitaler Referenzpfad
+
+- Black-Box-Vergleichspfad (z. B. USB/PC/Referenzdecoder)
+- Fokus: Decodercharakteristik, Ballistik, Type-II-Tendenz
+- Keine Bewertung von SGTL5000-Analoggrenzen
+
+### Analoger Zielpfad
+
+- Analoge Quelle -> Teensy Line-In -> OCX -> analog out
+- Fokus: Headroom, Trim, Clipping, Rauschen, Runtime-Stabilität
+
+Keine doppelte Type-II-Encode-Kette im Vergleichspfad aufbauen.
+
+## Referenzmaterial (A/B)
+
+- **Referenzkassette A (uncompanded):** Pegel-/Signalwegkontrolle
+- **Referenzkassette B (Type-II-encodiert):** Decoderabstimmung/Black-Box-Abgleich
+
+400-Hz-Ton ist nur Kalibrierhilfe, nicht alleiniger Decoderabgleich.
+Ergänzend nutzen: Mehrpegel-Sinus, Bursts, Envelope-Steps, Noise, Sweep, Musik.
+
+## Hardware-Testablauf (telemetriegeführt)
+
+1. Gerät booten
+2. Factory-Preset laden (`0`)
+3. Telemetrie resetten (`X`)
+4. Definierte Testquelle mehrere Minuten abspielen
+5. Status (`p`) und/oder kompakte Telemetrie (`m`) auslesen
+6. Interpretieren:
+   - CPU-Reserve ausreichend? (`AudioProcessorUsageMax` nicht nahe Dauerüberlast)
+   - AudioMemory-Reserve ausreichend? (`AudioMemoryUsageMax < AudioMemory(64)`)
+   - `allocFailCount == 0`?
+   - `inputClipCount`/`outputClipCount` unauffällig?
+
+## Profilentscheidungslogik
+
+Aktuelles Universalprofil wurde als robuster Kompromiss beibehalten:
+
+- konservative Analog-Reserve (`line_in_level=0`, `headroom_db=1.0`)
+- moderate Decoderstärke (`strength=0.76`)
+- stabile Ballistik (`attack_ms=3.5`, `release_ms=140.0`)
+
+Nicht gewählte Kandidaten (typische Gründe):
+
+- höhere `strength` + weniger `headroom`: mehr Clipping-/Soft-Clip-Druck
+- aggressiveres Release: stärkere Gain-Sprünge/Pump-Anzeichen
+- stark reduzierte De-Emphasis: unplausible HF-Verfärbung
+
+## Grenzen / offene Unsicherheiten
+
+- Keine Bitexact-/Originalgleich-/Referenzgleich-Claims ohne harte Messkette.
+- Endgültige Bewertung bleibt hardware- und materialabhängig.
+- Black-Box-Demos ohne exakt dokumentierten Prozesspfad sind nur Hinweis, keine harte Kalibrierreferenz.
