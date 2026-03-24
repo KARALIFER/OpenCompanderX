@@ -223,6 +223,7 @@ def test_profile_and_firmware_defaults_are_synced():
     profile = json.loads(PROFILE_PATH.read_text())
     decoder = profile["decoder"]
     codec = profile["codec"]
+    tone = profile["tone"]
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
 
     expected_pairs = {
@@ -247,6 +248,16 @@ def test_profile_and_firmware_defaults_are_synced():
     }
 
     for key, expected in expected_pairs.items():
+        match = re.search(rf"{key}\s*=\s*([-0-9.]+)f?;", ino)
+        assert match is not None, key
+        actual = float(match.group(1))
+        assert actual == float(expected), key
+
+    tone_pairs = {
+        "kToneHz": tone["frequency_hz"],
+        "kToneDb": tone["level_dbfs"],
+    }
+    for key, expected in tone_pairs.items():
         match = re.search(rf"{key}\s*=\s*([-0-9.]+)f?;", ino)
         assert match is not None, key
         actual = float(match.group(1))

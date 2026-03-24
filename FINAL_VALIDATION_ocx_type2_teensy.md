@@ -74,17 +74,29 @@ Keine doppelte Type-II-Encode-Kette im Vergleichspfad aufbauen.
 - **Referenzkassette B (Type-II-encodiert):** Decoderabstimmung/Black-Box-Abgleich
 
 400-Hz-Ton ist nur Kalibrierhilfe, nicht alleiniger Decoderabgleich.
+Für das konkrete Nutzer-Setup (Mixtape Nerd + TEAC W-1200 + RTM-Band) wird
+`0 VU` praktisch bei ca. `-9.8 dBFS` getroffen; daher wird der Kalibrierton
+als **400 Hz @ -9.8 dBFS** geführt (setup-spezifisch, kein Universalstandard).
 Ergänzend nutzen: Mehrpegel-Sinus, Bursts, Envelope-Steps, Noise, Sweep, Musik.
 Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Converter) sind Referenzpfad-Werkzeuge, nicht stillschweigende Kernfunktion des OCX-Decoders.
+
+## Pegeltrennung im Profil
+
+- `tone.level_dbfs` = Kalibrier-Testtonpegel für den realen Deck-/Band-Abgleich
+  (hier: `-9.8 dBFS` im genannten Setup).
+- `decoder.reference_db` = interner Decoder-Referenzparameter (derzeit `-18.0`),
+  separat zu validieren und **nicht** automatisch aus dem Kalibrierpegel abzuleiten.
 
 ## Hardware-Testablauf (telemetriegeführt)
 
 1. Gerät booten
 2. Factory-Preset laden (`0`)
 3. Telemetrie resetten (`X`)
-4. Definierte Testquelle mehrere Minuten abspielen
-5. Status (`p`) und/oder kompakte Telemetrie (`m`) auslesen
-6. Interpretieren:
+4. Kalibrieren mit 400 Hz @ `-9.8 dBFS` gegen den eigenen 0-VU-/Ref.-Punkt
+   des Ziel-Deck-Workflows.
+5. Definierte Testquelle mehrere Minuten abspielen
+6. Status (`p`) und/oder kompakte Telemetrie (`m`) auslesen
+7. Interpretieren:
    - CPU-Reserve ausreichend? (`AudioProcessorUsageMax` nicht nahe Dauerüberlast)
    - AudioMemory-Reserve ausreichend? (`AudioMemoryUsageMax < AudioMemory(64)`)
    - `allocFailCount == 0`?
