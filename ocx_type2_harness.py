@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+
 from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params, db_to_lin, ensure_stereo, read_audio, summarize_signal, write_audio
 
 
@@ -57,29 +58,38 @@ def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
     }
 
 
+def _align_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    n = min(len(a), len(b))
+    if n <= 0:
+        return np.zeros((0, 2), dtype=np.float64), np.zeros((0, 2), dtype=np.float64)
+    return a[:n], b[:n]
+
+
 def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | None]:
-    residual = out - inp
+    inp_aligned, out_aligned = _align_pair(inp, out)
+    residual = out_aligned - inp_aligned
     metrics: dict[str, float | None] = {
-        "channel_deviation_db": float(20.0 * np.log10(max(np.sqrt(np.mean(np.square(out[:, 0] - out[:, 1]))), 1.0e-12))),
-        "null_residual_rms": float(np.sqrt(np.mean(np.square(residual)))),
-        "mse_vs_input": float(np.mean(np.square(residual))),
-        "mae_vs_input": float(np.mean(np.abs(residual))),
-        "max_abs_error_vs_input": float(np.max(np.abs(residual))),
-        "correlation_vs_input": correlation(inp, out),
-        "freq_response_delta_db": spectral_delta_db(inp, out),
-        "transient_delta": transient_delta(inp, out),
+        "channel_deviation_db": float(20.0 * np.log10(max(np.sqrt(np.mean(np.square(out_aligned[:, 0] - out_aligned[:, 1]))), 1.0e-12))) if len(out_aligned) else -240.0,
+        "null_residual_rms": float(np.sqrt(np.mean(np.square(residual)))) if len(residual) else 0.0,
+        "mse_vs_input": float(np.mean(np.square(residual))) if len(residual) else 0.0,
+        "mae_vs_input": float(np.mean(np.abs(residual))) if len(residual) else 0.0,
+        "max_abs_error_vs_input": float(np.max(np.abs(residual))) if len(residual) else 0.0,
+        "correlation_vs_input": correlation(inp_aligned, out_aligned) if len(inp_aligned) else 0.0,
+        "freq_response_delta_db": spectral_delta_db(inp_aligned, out_aligned) if len(inp_aligned) else 0.0,
+        "transient_delta": transient_delta(inp_aligned, out_aligned) if len(inp_aligned) else 0.0,
     }
-    metrics.update(gain_curve_stats(inp, out))
+    metrics.update(gain_curve_stats(inp_aligned, out_aligned))
     if ref is not None:
-        ref_residual = out - ref
+        ref_aligned, out_ref_aligned = _align_pair(ref, out)
+        ref_residual = out_ref_aligned - ref_aligned
         metrics.update({
-            "mse_vs_reference": float(np.mean(np.square(ref_residual))),
-            "mae_vs_reference": float(np.mean(np.abs(ref_residual))),
-            "max_abs_error_vs_reference": float(np.max(np.abs(ref_residual))),
-            "correlation_vs_reference": correlation(ref, out),
-            "null_residual_rms_vs_reference": float(np.sqrt(np.mean(np.square(ref_residual)))),
-            "freq_response_delta_db_vs_reference": spectral_delta_db(ref, out),
-            "transient_delta_vs_reference": transient_delta(ref, out),
+            "mse_vs_reference": float(np.mean(np.square(ref_residual))) if len(ref_residual) else 0.0,
+            "mae_vs_reference": float(np.mean(np.abs(ref_residual))) if len(ref_residual) else 0.0,
+            "max_abs_error_vs_reference": float(np.max(np.abs(ref_residual))) if len(ref_residual) else 0.0,
+            "correlation_vs_reference": correlation(ref_aligned, out_ref_aligned) if len(ref_aligned) else 0.0,
+            "null_residual_rms_vs_reference": float(np.sqrt(np.mean(np.square(ref_residual)))) if len(ref_residual) else 0.0,
+            "freq_response_delta_db_vs_reference": spectral_delta_db(ref_aligned, out_ref_aligned) if len(ref_aligned) else 0.0,
+            "transient_delta_vs_reference": transient_delta(ref_aligned, out_ref_aligned) if len(ref_aligned) else 0.0,
         })
     else:
         metrics.update({
@@ -220,7 +230,7 @@ def main() -> None:
         if ref_path and ref_path.exists():
             ref_fs, ref_audio = read_audio(ref_path)
             if ref_fs == fs:
-                ref = ref_audio
+                ref = ensure_stereo(ref_audio)
         metrics = {
             "case": name,
             **{f"input_{k}": v for k, v in summarize_signal("input", inp).items() if k != "name"},
@@ -245,11 +255,7 @@ def main() -> None:
     except Exception:
         pass
 
-    print(json.dumps({
-        "cases": len(results),
-        "out_dir": str(args.out_dir),
-        "reference_dir": str(args.reference_dir) if args.reference_dir else None,
-    }, indent=2))
+    print(json.dumps({"cases": len(results), "out_dir": str(args.out_dir), "reference_dir": str(args.reference_dir) if args.reference_dir else None}, indent=2))
 
 
 if __name__ == "__main__":

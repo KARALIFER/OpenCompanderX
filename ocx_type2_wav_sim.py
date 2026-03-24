@@ -27,7 +27,8 @@ def sanitize_scalar(x: float, lo: float = -1.0e12, hi: float = 1.0e12) -> float:
 
 
 def sanitize_array(x: np.ndarray, lo: float = -1.0, hi: float = 1.0) -> np.ndarray:
-    return np.clip(np.nan_to_num(np.asarray(x, dtype=np.float64), nan=0.0, posinf=hi, neginf=lo), lo, hi)
+    arr = np.asarray(x, dtype=np.float64)
+    return np.clip(np.nan_to_num(arr, nan=0.0, posinf=hi, neginf=lo), lo, hi)
 
 
 def db_to_lin(db: float) -> float:
@@ -35,22 +36,22 @@ def db_to_lin(db: float) -> float:
 
 
 def soft_clip(x: np.ndarray | float, drive: float) -> np.ndarray | float:
-    x = np.asarray(x, dtype=np.float64)
-    y = np.tanh(drive * x) / np.tanh(drive)
+    arr = np.asarray(x, dtype=np.float64)
+    y = np.tanh(drive * arr) / np.tanh(drive)
     return np.nan_to_num(y, nan=0.0, posinf=1.0, neginf=-1.0)
 
 
 def ensure_stereo(audio: np.ndarray) -> np.ndarray:
-    audio = np.asarray(audio, dtype=np.float64)
-    if audio.ndim == 1:
-        return np.column_stack([audio, audio])
-    if audio.ndim != 2:
-        raise ValueError(f"Expected audio with shape (N,), (N,1), or (N,2); got {audio.shape}")
-    if audio.shape[1] == 1:
-        return np.repeat(audio, 2, axis=1)
-    if audio.shape[1] == 2:
-        return audio
-    raise ValueError(f"Expected audio with shape (N,), (N,1), or (N,2); got {audio.shape}")
+    arr = np.asarray(audio, dtype=np.float64)
+    if arr.ndim == 1:
+        return np.column_stack([arr, arr])
+    if arr.ndim != 2:
+        raise ValueError(f"Expected shape (N,), (N,1), or (N,2); got {arr.shape}")
+    if arr.shape[1] == 1:
+        return np.repeat(arr, 2, axis=1)
+    if arr.shape[1] == 2:
+        return arr
+    raise ValueError(f"Expected shape (N,), (N,1), or (N,2); got {arr.shape}")
 
 
 @dataclass(frozen=True)
@@ -213,6 +214,7 @@ class Decoder:
             env = math.sqrt(max(self.env2[ch] + 1.0e-12, 1.0e-12))
             level_db = 20.0 * math.log10(max(env, 1.0e-12))
             gain_db = clamp((level_db - self.p.reference_db) * self.p.strength, -self.p.max_cut_db, self.p.max_boost_db)
+
             y = sanitize_scalar(x0 * db_to_lin(gain_db))
             y = self.deemph[ch].process(y)
             y = sanitize_scalar(y * self.output_gain * self.headroom_gain)
