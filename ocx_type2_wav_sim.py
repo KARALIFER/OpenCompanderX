@@ -28,7 +28,7 @@ def sanitize_scalar(x: float, lo: float = -1.0e12, hi: float = 1.0e12) -> float:
 
 
 def sanitize_array(x: np.ndarray, lo: float = -1.0, hi: float = 1.0) -> np.ndarray:
-    return np.clip(np.nan_to_num(np.asarray(x, dtype=np.float64), nan=0.0, posinf=hi, neginf=lo), lo, hi)
+
 
 
 def db_to_lin(db: float) -> float:
@@ -108,21 +108,6 @@ class OnePoleHP:
         self.prev_x = 0.0
         self.prev_y = 0.0
 
-
-class OnePoleHP:
-    def __init__(self, fs: float, hz: float):
-        hz = max(hz, 0.1)
-        rc = 1.0 / (2.0 * math.pi * hz)
-        dt = 1.0 / fs
-        self.alpha = rc / (rc + dt)
-        self.prev_x = 0.0
-        self.prev_y = 0.0
-
-    def process(self, x: float) -> float:
-        y = self.alpha * (self.prev_y + x - self.prev_x)
-        self.prev_x = x
-        self.prev_y = y
-        return y
 
 
 def design_highpass(fs: float, hz: float, q: float = 0.7071) -> Biquad:
@@ -212,6 +197,7 @@ class Decoder:
                 self.output_clip[ch] = True
             out[i] = y
 
+
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("input_wav", type=Path)
@@ -243,6 +229,7 @@ def main() -> None:
     }, indent=2))
 
     if args.plot:
+
 
         n = min(len(audio), fs * 2)
         t = np.arange(n) / fs

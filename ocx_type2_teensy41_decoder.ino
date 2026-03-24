@@ -12,7 +12,6 @@
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <SerialFlash.h>
 #include <math.h>
 
 namespace OCXProfile {
