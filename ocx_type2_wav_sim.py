@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
 
@@ -28,14 +27,56 @@ def sanitize_scalar(x: float, lo: float = -1.0e12, hi: float = 1.0e12) -> float:
 
 
 def sanitize_array(x: np.ndarray, lo: float = -1.0, hi: float = 1.0) -> np.ndarray:
-
+    out = np.nan_to_num(np.asarray(x, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    return np.clip(out, lo, hi)
 
 
 def db_to_lin(db: float) -> float:
     return 10.0 ** (db / 20.0)
 
 
+def soft_clip(x: float, drive: float) -> float:
+    drive = max(1.0e-6, sanitize_scalar(drive, 1.0e-6, 8.0))
+    return sanitize_scalar(math.tanh(drive * x) / math.tanh(drive), -1.2, 1.2)
 
+
+def ensure_stereo(audio: np.ndarray) -> np.ndarray:
+    arr = np.asarray(audio, dtype=np.float64)
+    if arr.ndim == 1:
+        arr = np.column_stack([arr, arr])
+    elif arr.ndim == 2 and arr.shape[1] == 1:
+        arr = np.column_stack([arr[:, 0], arr[:, 0]])
+    elif arr.ndim == 2 and arr.shape[1] == 2:
+        pass
+    else:
+        raise ValueError(f"Expected shape (N,), (N,1), or (N,2). Got {arr.shape}")
+    return sanitize_array(arr, -1.0, 1.0)
+
+
+def read_audio(path: Path) -> tuple[int, np.ndarray]:
+    audio, fs = sf.read(path, always_2d=False)
+    return int(fs), ensure_stereo(audio)
+
+
+def write_audio(path: Path, fs: int, audio: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(path, ensure_stereo(audio), fs, subtype="PCM_16")
+
+
+def summarize_signal(name: str, audio: np.ndarray) -> dict[str, float | str]:
+    st = ensure_stereo(audio)
+    peak = float(np.max(np.abs(st)))
+    rms = float(np.sqrt(np.mean(np.square(st))))
+    crest = float(peak / max(rms, 1.0e-12))
+    ch_delta = float(np.max(np.abs(st[:, 0] - st[:, 1])))
+    return {
+        "name": name,
+        "samples": int(st.shape[0]),
+        "peak": peak,
+        "rms": rms,
+        "crest": crest,
+        "channel_delta_max": ch_delta,
+    }
 
 
 @dataclass(frozen=True)
@@ -67,7 +108,7 @@ class Params:
 
 
 class Biquad:
-    def __init__(self):
+    def __init__(self) -> None:
         self.b0 = 1.0
         self.b1 = 0.0
         self.b2 = 0.0
@@ -77,7 +118,7 @@ class Biquad:
         self.z2 = 0.0
 
     def process(self, x: float) -> float:
-
+        x = sanitize_scalar(x)
         y = self.b0 * x + self.z1
         self.z1 = sanitize_scalar(self.b1 * x - self.a1 * y + self.z2)
         self.z2 = sanitize_scalar(self.b2 * x - self.a2 * y)
@@ -89,13 +130,15 @@ class Biquad:
 
 
 class OnePoleHP:
-    def __init__(self, fs: float, hz: float):
-        hz = max(hz, 0.1)
+    def __init__(self, fs: float, hz: float) -> None:
+        self.design(fs, hz)
+
+    def design(self, fs: float, hz: float) -> None:
+        hz = clamp(float(hz), 0.1, 200.0)
         rc = 1.0 / (2.0 * math.pi * hz)
-        dt = 1.0 / fs
+        dt = 1.0 / float(fs)
         self.alpha = rc / (rc + dt)
-        self.prev_x = 0.0
-        self.prev_y = 0.0
+        self.reset()
 
     def process(self, x: float) -> float:
         x = sanitize_scalar(x)
@@ -107,7 +150,6 @@ class OnePoleHP:
     def reset(self) -> None:
         self.prev_x = 0.0
         self.prev_y = 0.0
-
 
 
 def design_highpass(fs: float, hz: float, q: float = 0.7071) -> Biquad:
@@ -160,46 +202,76 @@ def design_high_shelf(fs: float, hz: float, gain_db: float, slope: float = 0.8) 
 
 class Decoder:
     def __init__(self, fs: int, params: Params):
-        self.fs = fs
+        self.fs = int(fs)
         self.p = params
         self.input_gain = db_to_lin(params.input_trim_db)
         self.output_gain = db_to_lin(params.output_trim_db)
         self.headroom_gain = db_to_lin(-abs(params.headroom_db))
-        self.attack_coeff = math.exp(-1.0 / max(fs * params.attack_ms * 0.001, 1.0))
-        self.release_coeff = math.exp(-1.0 / max(fs * params.release_ms * 0.001, 1.0))
-        self.sc_hp = [design_highpass(fs, params.sidechain_hp_hz) for _ in range(2)]
-        self.sc_shelf = [design_high_shelf(fs, params.sidechain_shelf_hz, params.sidechain_shelf_db) for _ in range(2)]
-        self.deemph = [design_high_shelf(fs, params.deemph_hz, params.deemph_db) for _ in range(2)]
-        self.dc_block = [OnePoleHP(fs, params.dc_block_hz) for _ in range(2)]
+        self.attack_coeff = math.exp(-1.0 / max(self.fs * params.attack_ms * 0.001, 1.0))
+        self.release_coeff = math.exp(-1.0 / max(self.fs * params.release_ms * 0.001, 1.0))
+        self.sc_hp = [design_highpass(self.fs, params.sidechain_hp_hz) for _ in range(2)]
+        self.sc_shelf = [design_high_shelf(self.fs, params.sidechain_shelf_hz, params.sidechain_shelf_db) for _ in range(2)]
+        self.deemph = [design_high_shelf(self.fs, params.deemph_hz, params.deemph_db) for _ in range(2)]
+        self.dc_block = [OnePoleHP(self.fs, params.dc_block_hz) for _ in range(2)]
         self.env2 = np.full(2, 1.0e-9, dtype=np.float64)
         self.input_clip = np.zeros(2, dtype=np.bool_)
         self.output_clip = np.zeros(2, dtype=np.bool_)
 
     def reset(self) -> None:
-        self.__init__(self.fs, self.p)
+        for bank in (self.sc_hp, self.sc_shelf, self.deemph, self.dc_block):
+            for f in bank:
+                f.reset()
+        self.env2[:] = 1.0e-9
+        self.input_clip[:] = False
+        self.output_clip[:] = False
 
     def process_channel(self, x: np.ndarray, ch: int) -> np.ndarray:
-
+        x = np.asarray(x, dtype=np.float64)
+        out = np.zeros_like(x)
+        for i, sample in enumerate(x):
+            x0 = sanitize_scalar(float(sample), -2.0, 2.0)
+            x0 = self.dc_block[ch].process(x0 * self.input_gain)
             if abs(x0) > 0.98:
                 self.input_clip[ch] = True
 
             if self.p.bypass:
                 y = soft_clip(x0 * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
-                out[i] = float(np.clip(y, -1.0, 1.0))
+                y = sanitize_scalar(y, -1.0, 1.0)
+                if abs(y) > 0.98:
+                    self.output_clip[ch] = True
+                out[i] = y
                 continue
 
             sc = self.sc_hp[ch].process(x0)
             sc = self.sc_shelf[ch].process(sc)
+            p = sanitize_scalar(sc * sc, 0.0, 1.0e12)
+            coeff = self.attack_coeff if p > self.env2[ch] else self.release_coeff
+            self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * p, 0.0, 1.0e12)
+            env = math.sqrt(self.env2[ch] + 1.0e-12)
 
+            gain_db = (20.0 * math.log10(max(env, 1.0e-12)) - self.p.reference_db) * self.p.strength
+            gain_db = clamp(gain_db, -self.p.max_cut_db, self.p.max_boost_db)
+
+            y = x0 * db_to_lin(gain_db)
+            y = self.deemph[ch].process(y)
+            y *= self.output_gain * self.headroom_gain
             y = soft_clip(y, self.p.soft_clip_drive)
-            y = float(np.clip(y, -1.0, 1.0))
+            y = sanitize_scalar(y, -1.0, 1.0)
             if abs(y) > 0.98:
                 self.output_clip[ch] = True
             out[i] = y
 
+        return sanitize_array(out, -1.0, 1.0)
+
+    def process(self, audio: np.ndarray) -> np.ndarray:
+        st = ensure_stereo(audio)
+        out_l = self.process_channel(st[:, 0], 0)
+        out_r = self.process_channel(st[:, 1], 1)
+        return sanitize_array(np.column_stack([out_l, out_r]), -1.0, 1.0)
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description="Offline OCX Type 2 WAV decoder simulator")
     ap.add_argument("input_wav", type=Path)
     ap.add_argument("output_wav", type=Path)
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
@@ -221,15 +293,20 @@ def main() -> None:
     out = decoder.process(audio)
     write_audio(args.output_wav, fs, out)
 
-    print(json.dumps({
-        "input": summarize_signal("input", audio),
-        "output": summarize_signal("output", out),
-        "input_clip": decoder.input_clip.tolist(),
-        "output_clip": decoder.output_clip.tolist(),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "input": summarize_signal("input", audio),
+                "output": summarize_signal("output", out),
+                "input_clip": decoder.input_clip.tolist(),
+                "output_clip": decoder.output_clip.tolist(),
+            },
+            indent=2,
+        )
+    )
 
     if args.plot:
-
+        import matplotlib.pyplot as plt
 
         n = min(len(audio), fs * 2)
         t = np.arange(n) / fs
