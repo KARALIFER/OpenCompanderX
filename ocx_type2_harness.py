@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import itertools
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
@@ -236,7 +237,8 @@ def music_like(fs: int, seconds: float) -> np.ndarray:
 def hf_bursts(fs: int, seconds: float) -> np.ndarray:
     n = int(fs * seconds)
     out = np.zeros(n)
-    burst = tone(fs, 0.03, 8500.0, -8.0)
+    burst_hz = min(8500.0, fs * 0.35)
+    burst = tone(fs, 0.03, burst_hz, -8.0)
     gap = int(fs * 0.07)
     idx = 0
     while idx + len(burst) < n:
@@ -267,24 +269,28 @@ def rapid_level_swings(fs: int, seconds: float) -> np.ndarray:
 
 
 def build_cases(fs: int) -> dict[str, np.ndarray]:
+    sweep_end_hz = min(20000.0, fs * 0.45)
+    treble_a_hz = min(4000.0, fs * 0.30)
+    treble_b_hz = min(9000.0, fs * 0.40)
+    mismatch_r_hz = min(1300.0, fs * 0.40)
     rng = np.random.default_rng(1234)
     silence = np.zeros(int(fs * 3.0))
     base = tone(fs, 3.0, 1000.0, -12.0)
-    mismatch = np.column_stack([tone(fs, 3.0, 1000.0, -12.0), tone(fs, 3.0, 1300.0, -18.0)])
+    mismatch = np.column_stack([tone(fs, 3.0, 1000.0, -12.0), tone(fs, 3.0, mismatch_r_hz, -18.0)])
     return {
         "silence": ensure_stereo(silence),
         "sine_-24db": ensure_stereo(tone(fs, 3.0, 1000.0, -24.0)),
         "sine_-12db": ensure_stereo(base),
         "sine_-6db": ensure_stereo(tone(fs, 3.0, 1000.0, -6.0)),
-        "log_sweep": ensure_stereo(log_sweep(fs, 5.0, 20.0, 20000.0, -18.0)),
+        "log_sweep": ensure_stereo(log_sweep(fs, 5.0, 20.0, sweep_end_hz, -18.0)),
         "pink_noise": ensure_stereo(colored_noise(fs, 4.0, "pink", -18.0, rng)),
         "white_noise": ensure_stereo(colored_noise(fs, 4.0, "white", -20.0, rng)),
         "bursts": ensure_stereo(bursts(fs, 3.0, -8.0)),
         "envelope_steps": ensure_stereo(envelope_steps(fs, 3.0)),
-        "stereo_identical": ensure_stereo(tone(fs, 3.0, 500.0, -16.0) + tone(fs, 3.0, 3000.0, -22.0)),
+        "stereo_identical": ensure_stereo(tone(fs, 3.0, 500.0, -16.0) + tone(fs, 3.0, min(3000.0, fs * 0.35), -22.0)),
         "stereo_different": mismatch,
         "bass_heavy": ensure_stereo(bass_heavy(fs, 4.0)),
-        "treble_heavy": ensure_stereo(treble_heavy(fs, 4.0)),
+        "treble_heavy": ensure_stereo(tone(fs, 4.0, treble_a_hz, -8.0) + tone(fs, 4.0, treble_b_hz, -12.0)),
         "clipped_input": ensure_stereo(clipped_source(fs, 3.0)),
         "too_quiet": ensure_stereo(tone(fs, 3.0, 1000.0, -42.0)),
         "too_hot": ensure_stereo(np.clip(tone(fs, 3.0, 1000.0, -1.0) * 1.2, -1.0, 1.0)),
@@ -350,29 +356,24 @@ def sweep_space() -> dict[str, list[float]]:
     }
 
 
-def candidate_overrides_for_mode(mode: str) -> list[dict[str, float]]:
+def iter_candidate_overrides(mode: str):
     space = sweep_space()
     keys = list(space.keys())
     if mode == "coarse":
-        values = [space[k] for k in keys]
-        candidates = []
-        for combo in itertools.product(*values):
-            overrides = {k: float(v) for k, v in zip(keys, combo)}
-            candidates.append(overrides)
-        return candidates
-
+        for combo in itertools.product(*(space[k] for k in keys)):
+            yield {k: float(v) for k, v in zip(keys, combo)}
+        return
     if mode == "refine":
         center = {k: space[k][1] for k in keys}
-        candidates = [center]
+        yield center
         for key in keys:
             low = dict(center)
             high = dict(center)
             low[key] = space[key][0]
             high[key] = space[key][2]
-            candidates.append(low)
-            candidates.append(high)
-        return candidates
-
+            yield low
+            yield high
+        return
     raise ValueError("Unknown tuning mode. Use 'coarse' or 'refine'.")
 
 
@@ -417,11 +418,11 @@ def main() -> None:
     }
 
     if args.tune:
-        candidates = candidate_overrides_for_mode(args.tune_mode)
+        candidate_iter = iter_candidate_overrides(args.tune_mode)
         if args.max_candidates is not None:
-            candidates = candidates[: max(1, args.max_candidates)]
+            candidate_iter = islice(candidate_iter, max(1, args.max_candidates))
         ranking = []
-        for idx, overrides in enumerate(candidates):
+        for idx, overrides in enumerate(candidate_iter):
             clean = {k: v for k, v in overrides.items() if k in DECODER_OVERRIDE_KEYS}
             candidate = Params.from_profile(args.profile, **clean)
             _, score = evaluate_candidate(fs, cases, candidate, args.reference_dir)
