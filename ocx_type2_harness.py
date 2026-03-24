@@ -75,6 +75,8 @@ def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
             "gain_curve_diff_std_db": 0.0,
             "gain_curve_diff_p95_db": 0.0,
             "input_level_span_db": 0.0,
+            "gain_vs_input_slope": 0.0,
+            "gain_vs_input_r2": 0.0,
         }
     gains = 20.0 * np.log10(np.maximum(out_rms[:n], 1.0e-12) / np.maximum(in_rms[:n], 1.0e-12))
     gains = np.nan_to_num(gains, nan=0.0, posinf=0.0, neginf=0.0)
@@ -82,13 +84,33 @@ def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
     in_db = np.nan_to_num(in_db, nan=-120.0, posinf=0.0, neginf=-120.0)
     gain_diff = np.diff(gains, axis=0, prepend=gains[:1])
     gain_diff_abs = np.abs(gain_diff)
+    in_db_mono = np.mean(in_db, axis=1)
+    gains_mono = np.mean(gains, axis=1)
+    centered_x = in_db_mono - np.mean(in_db_mono)
+    centered_y = gains_mono - np.mean(gains_mono)
+    var_x = float(np.dot(centered_x, centered_x))
+    if var_x > 1.0e-12:
+        slope = float(np.dot(centered_x, centered_y) / var_x)
+        y_fit = np.mean(gains_mono) + slope * centered_x
+        sst = float(np.dot(centered_y, centered_y))
+        sse = float(np.dot(gains_mono - y_fit, gains_mono - y_fit))
+        r2 = 1.0 - (sse / max(sst, 1.0e-12))
+    else:
+        slope = 0.0
+        r2 = 0.0
     return {
         "gain_curve_mean_db": float(np.mean(gains)),
         "gain_curve_std_db": float(np.std(gains)),
         "gain_curve_diff_std_db": float(np.std(gain_diff)),
         "gain_curve_diff_p95_db": float(np.percentile(gain_diff_abs, 95.0)),
         "input_level_span_db": float(np.max(in_db) - np.min(in_db)),
+        "gain_vs_input_slope": slope,
+        "gain_vs_input_r2": float(clamp(r2, -1.0, 1.0)),
     }
+
+
+def clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
 
 
 def softclip_dependency(inp: np.ndarray, out: np.ndarray) -> float:
@@ -185,6 +207,11 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
         if float(row["correlation"]) > 0.995 and float(row["decode_action_ratio"]) < 0.08:
             under_decode_penalty += 35.0
     level_span_penalty = 5.0 * max(0.0, 12.0 - float(row["input_level_span_db"]))
+    tracking_slope_penalty = 0.0
+    if float(row["input_level_span_db"]) > 10.0 and float(row["input_rms"]) > 0.02:
+        tracking_slope_penalty += 35.0 * max(0.0, float(row["gain_vs_input_slope"]) + 0.02)
+        tracking_slope_penalty += 30.0 * max(0.0, -0.60 - float(row["gain_vs_input_slope"]))
+        tracking_slope_penalty += 12.0 * max(0.0, 0.25 - float(row["gain_vs_input_r2"]))
     return (
         clip_penalty
         + stereo_penalty
@@ -196,6 +223,7 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
         + softclip_penalty
         + under_decode_penalty
         + level_span_penalty
+        + tracking_slope_penalty
     )
 
 
@@ -462,8 +490,14 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
         "headroom_db": [base["headroom_db"], min(6.0, base["headroom_db"] + 0.5)],
     }
 
-    coarse_cases = select_tuning_cases(build_cases(tune_fs))
-    final_cases = select_tuning_cases(build_cases(final_fs))
+    coarse_cases_all = build_cases(tune_fs)
+    final_cases_all = build_cases(final_fs)
+    coarse_cases = select_tuning_cases(coarse_cases_all)
+    final_cases = select_tuning_cases(final_cases_all)
+    if "bass_plus_hf" in final_cases_all:
+        final_cases["bass_plus_hf"] = final_cases_all["bass_plus_hf"]
+    if "stereo_different" in final_cases_all:
+        final_cases["stereo_different"] = final_cases_all["stereo_different"]
 
     coarse_results = []
     keys = list(grid.keys())
@@ -488,6 +522,8 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
     final_results.sort(key=lambda x: float(x["score_total"]), reverse=True)
     return {
         "method": "two_stage_tuning",
+        "selection_basis": "final_stage_only",
+        "coarse_stage_role": "prescan_only_not_final_decision",
         "coarse_fs": tune_fs,
         "final_fs": final_fs,
         "candidate_limit": max(1, max_candidates),

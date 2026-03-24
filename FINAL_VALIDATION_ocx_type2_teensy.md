@@ -31,6 +31,7 @@ Bewertet werden u. a.:
 - starke Transientenzerstörung
 - übermäßige Soft-Clip-Abhängigkeit
 - unplausible Reaktion über unterschiedliche Eingangspegel
+- Gain-vs-Input-Tracking (Slope/R²) bei ausreichender Pegelspanne
 
 Nicht als Primärziel: maximale Input-Ähnlichkeit.
 Zusätzlich wird eine zu schwache Dekodierwirkung (Under-Decoding) explizit bestraft, damit „Input fast unverändert“ nicht trivial gewinnt.
@@ -90,6 +91,7 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
    - `inputClipCount`/`outputClipCount` unauffällig?
 
 `m` liefert dafür eine kompakte Einzeile (`[TLM] ...`) ohne seriellen Spam im Audiopfad.
+Die Zeile enthält explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` für schnelle Laufzeit-Interpretation.
 
 ## Profilentscheidungslogik
 

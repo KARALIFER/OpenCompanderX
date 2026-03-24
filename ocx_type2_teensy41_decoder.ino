@@ -469,11 +469,15 @@ void printCompactTelemetryLine() {
   const uint32_t memNow = AudioMemoryUsage();
   const uint32_t memMax = AudioMemoryUsageMax();
   const uint32_t memCfg = OCXProfile::kAudioMemoryBlocks;
+  const bool cpuTight = cpuMax > 80.0f;
+  const bool memTight = memMax + 4 >= memCfg;
   Serial.print(F("[TLM] cpuNow=")); Serial.print(cpuNow, 1);
   Serial.print(F("% cpuMax=")); Serial.print(cpuMax, 1);
   Serial.print(F("% memNow=")); Serial.print(memNow);
   Serial.print(F(" memMax=")); Serial.print(memMax);
   Serial.print(F("/")); Serial.print(memCfg);
+  Serial.print(F(" cpuRes=")); Serial.print(cpuTight ? F("TIGHT") : F("OK"));
+  Serial.print(F(" memRes=")); Serial.print(memTight ? F("TIGHT") : F("OK"));
   Serial.print(F(" allocFail=")); Serial.print(ocx.getAllocFailCount());
   Serial.print(F(" inClip=")); Serial.print(ocx.getInputClipCount());
   Serial.print(F(" outClip=")); Serial.println(ocx.getOutputClipCount());
