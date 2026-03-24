@@ -1,8 +1,4 @@
 .pio/
 __pycache__/
 *.pyc
-artifacts/harness/*.wav
-artifacts/harness/*.json
-artifacts/harness/*.csv
-artifacts/harness/*.png
-artifacts/harness/*.md
+
