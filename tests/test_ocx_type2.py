@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ocx_type2_harness import build_cases, compare
+import ocx_type2_harness as harness_module
+from ocx_type2_harness import build_cases, compare, evaluate_scores, run_tuning
 from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params, ensure_stereo
 
 
@@ -104,6 +105,66 @@ def test_compare_handles_reference_length_mismatch_without_crash():
     metrics = compare(audio, out, short_ref)
     assert metrics["mse_vs_reference"] is not None
     assert np.isfinite(metrics["mse_vs_reference"])
+    assert int(metrics["reference_samples_used"]) == len(short_ref)
+
+
+def test_no_reference_score_ignores_input_similarity_metrics():
+    base = {
+        "case": "synthetic",
+        "output_clip_l": False,
+        "output_clip_r": False,
+        "channel_deviation_rms": 0.0,
+        "gain_curve_std_db": 1.8,
+        "gain_curve_diff_p95_db": 2.2,
+        "gain_curve_diff_std_db": 1.1,
+        "freq_response_delta_db": 5.0,
+        "transient_delta": 0.2,
+        "soft_clip_dependency": 0.0,
+        "gain_curve_mean_db": -1.0,
+        "input_level_span_db": 18.0,
+        "mse_vs_reference": None,
+        "freq_response_delta_db_vs_reference": None,
+        "transient_delta_vs_reference": None,
+        "correlation_vs_reference": None,
+        "reference_available": False,
+        "mse": 0.0,
+        "mae": 0.0,
+        "max_abs_error": 0.0,
+        "correlation": 1.0,
+        "residual_rms": 0.0,
+    }
+    changed_similarity = dict(base)
+    changed_similarity["mse"] = 0.35
+    changed_similarity["mae"] = 0.42
+    changed_similarity["max_abs_error"] = 0.8
+    changed_similarity["correlation"] = 0.12
+    changed_similarity["residual_rms"] = 0.55
+
+    score_a = float(evaluate_scores([base])["score_total"])
+    score_b = float(evaluate_scores([changed_similarity])["score_total"])
+    assert score_a == score_b
+
+
+def test_tuning_rerank_uses_44100_final_stage():
+    original_build_cases = harness_module.build_cases
+
+    def tiny_cases(fs: int):
+        _ = fs
+        return {
+            "tiny_a": np.zeros((256, 2), dtype=np.float64),
+            "tiny_b": np.full((256, 2), 0.03, dtype=np.float64),
+        }
+
+    harness_module.build_cases = tiny_cases
+    try:
+        run = run_tuning(PROFILE_PATH, tune_fs=4000, final_fs=44_100, top_k=1, max_candidates=2)
+    finally:
+        harness_module.build_cases = original_build_cases
+
+    assert run["final_fs"] == 44_100
+    assert len(run["coarse_ranking"]) > 0
+    assert len(run["final_ranking"]) == 1
+    assert run["best"] == run["final_ranking"][0]
 
 
 def test_profile_and_firmware_defaults_are_synced():

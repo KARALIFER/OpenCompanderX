@@ -418,7 +418,7 @@ void printHelp() {
   Serial.println(F("Commands:"));
   Serial.println(F("  h  : help"));
   Serial.println(F("  p  : print status"));
-  Serial.println(F("  m  : print telemetry status"));
+  Serial.println(F("  m  : print compact telemetry status"));
   Serial.println(F("  x  : clear clip flags"));
   Serial.println(F("  X  : clear clip flags + runtime counters + usage maxima"));
   Serial.println(F("  B  : reset DSP state"));
@@ -439,6 +439,18 @@ void printHelp() {
   Serial.println(F("  y/Y: DC block -/+ 1 Hz"));
   Serial.println(F("  t  : toggle 1 kHz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
+  Serial.println();
+}
+
+void printTelemetry() {
+  Serial.println();
+  Serial.println(F("---- OCX TELEMETRY ----"));
+  Serial.print(F("CPU usage now/max (%): ")); Serial.print(AudioProcessorUsage(), 2); Serial.print(F(" / ")); Serial.println(AudioProcessorUsageMax(), 2);
+  Serial.print(F("AudioMemory now/max blocks: ")); Serial.print(AudioMemoryUsage()); Serial.print(F(" / ")); Serial.println(AudioMemoryUsageMax());
+  Serial.print(F("Alloc fail count: ")); Serial.println(ocx.getAllocFailCount());
+  Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
+  Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
+  Serial.println(F("Interpretation: keep CPU max below sustained overload, keep AudioMemory max below configured blocks, allocFail must stay 0."));
   Serial.println();
 }
 
@@ -465,9 +477,7 @@ void printStatus() {
   Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
   Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
   Serial.print(F("Allocate fail count: ")); Serial.println(ocx.getAllocFailCount());
-  Serial.print(F("CPU usage now/max (%): ")); Serial.print(AudioProcessorUsage(), 2); Serial.print(F(" / ")); Serial.println(AudioProcessorUsageMax(), 2);
-  Serial.print(F("AudioMemory now/max blocks: ")); Serial.print(AudioMemoryUsage()); Serial.print(F(" / ")); Serial.println(AudioMemoryUsageMax());
-  Serial.println();
+  printTelemetry();
 }
 
 void handleSerial() {
@@ -476,7 +486,7 @@ void handleSerial() {
     switch (c) {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
-      case 'm': printStatus(); break;
+      case 'm': printTelemetry(); break;
       case 'x': ocx.clearClipFlags(); break;
       case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
       case 'B': ocx.resetState(); break;

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 from pathlib import Path
 
@@ -68,31 +69,58 @@ def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
     out_rms = frame_rms(out)
     n = min(len(in_rms), len(out_rms))
     if n == 0:
-        return {"gain_curve_mean_db": 0.0, "gain_curve_std_db": 0.0}
+        return {
+            "gain_curve_mean_db": 0.0,
+            "gain_curve_std_db": 0.0,
+            "gain_curve_diff_std_db": 0.0,
+            "gain_curve_diff_p95_db": 0.0,
+            "input_level_span_db": 0.0,
+        }
     gains = 20.0 * np.log10(np.maximum(out_rms[:n], 1.0e-12) / np.maximum(in_rms[:n], 1.0e-12))
     gains = np.nan_to_num(gains, nan=0.0, posinf=0.0, neginf=0.0)
+    in_db = 20.0 * np.log10(np.maximum(in_rms[:n], 1.0e-12))
+    in_db = np.nan_to_num(in_db, nan=-120.0, posinf=0.0, neginf=-120.0)
+    gain_diff = np.diff(gains, axis=0, prepend=gains[:1])
+    gain_diff_abs = np.abs(gain_diff)
     return {
         "gain_curve_mean_db": float(np.mean(gains)),
         "gain_curve_std_db": float(np.std(gains)),
+        "gain_curve_diff_std_db": float(np.std(gain_diff)),
+        "gain_curve_diff_p95_db": float(np.percentile(gain_diff_abs, 95.0)),
+        "input_level_span_db": float(np.max(in_db) - np.min(in_db)),
     }
 
 
-def align_lengths(*arrays: np.ndarray) -> list[np.ndarray]:
+def softclip_dependency(inp: np.ndarray, out: np.ndarray) -> float:
+    in_peak = float(np.max(np.abs(inp)))
+    out_peak = float(np.max(np.abs(out)))
+    in_rms = float(np.sqrt(np.mean(np.square(inp))))
+    out_rms = float(np.sqrt(np.mean(np.square(out))))
+    out_crest = out_peak / max(out_rms, 1.0e-12)
+    driven = max(0.0, (out_peak - 0.94) * 20.0)
+    compressed_crest = max(0.0, 2.0 - out_crest)
+    input_push = max(0.0, in_peak - 0.90)
+    return float(driven * (1.0 + compressed_crest) * (1.0 + input_push))
+
+
+def align_lengths(*arrays: np.ndarray | None) -> list[np.ndarray | None]:
     valid = [a for a in arrays if a is not None]
     n = min(len(a) for a in valid) if valid else 0
-    aligned = []
+    aligned: list[np.ndarray | None] = []
     for a in arrays:
         aligned.append(None if a is None else a[:n])
     return aligned
 
 
-def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | None]:
+def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | int | None]:
     inp = ensure_stereo(inp)
     out = ensure_stereo(out)
     inp_a, out_a, ref_a = align_lengths(inp, out, ref)
+    assert inp_a is not None
+    assert out_a is not None
 
     residual = out_a - inp_a
-    metrics: dict[str, float | None] = {
+    metrics: dict[str, float | int | None] = {
         "residual_rms": float(np.sqrt(np.mean(np.square(residual)))),
         **gain_curve_stats(inp_a, out_a),
         "mse": float(np.mean(np.square(residual))),
@@ -102,9 +130,12 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
         "freq_response_delta_db": spectral_delta_db(inp_a, out_a),
         "transient_delta": transient_delta(inp_a, out_a),
         "channel_deviation_rms": float(np.sqrt(np.mean(np.square(out_a[:, 0] - out_a[:, 1])))),
+        "soft_clip_dependency": softclip_dependency(inp_a, out_a),
+        "reference_samples_used": int(len(inp_a)) if ref_a is not None else 0,
     }
 
     if ref_a is not None:
+        assert ref_a is not None
         diff = out_a - ref_a
         metrics.update(
             {
@@ -132,17 +163,63 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
     return metrics
 
 
-def score_candidate(metrics: list[dict[str, float | bool | None]]) -> float:
-    score = 1000.0
+def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> float:
+    clip_penalty = 70.0 * int(bool(row["output_clip_l"])) + 70.0 * int(bool(row["output_clip_r"]))
+    stereo_penalty = 80.0 * min(float(row["channel_deviation_rms"]), 1.0)
+    gain_std_penalty = 3.0 * max(0.0, float(row["gain_curve_std_db"]) - 1.5)
+    gain_jump_penalty = 8.0 * max(0.0, float(row["gain_curve_diff_p95_db"]) - 2.5)
+    breathing_penalty = 4.0 * max(0.0, float(row["gain_curve_diff_std_db"]) - 1.2)
+    spectral_penalty = 2.0 * max(0.0, float(row["freq_response_delta_db"]) - 5.5)
+    transient_penalty = 16.0 * max(0.0, float(row["transient_delta"]) - 0.25)
+    softclip_penalty = 10.0 * float(row["soft_clip_dependency"])
+    return (
+        clip_penalty
+        + stereo_penalty
+        + gain_std_penalty
+        + gain_jump_penalty
+        + breathing_penalty
+        + spectral_penalty
+        + transient_penalty
+        + softclip_penalty
+    )
+
+
+def evaluate_scores(metrics: list[dict[str, float | bool | int | None]]) -> dict[str, float | int]:
+    plausibility_score = 1000.0
+    reference_score = 0.0
+    reference_cases = 0
+
+    means = [float(row["gain_curve_mean_db"]) for row in metrics]
+    level_spans = [float(row["input_level_span_db"]) for row in metrics]
+
     for row in metrics:
-        clip_penalty = 40.0 * int(bool(row["output_clip_l"])) + 40.0 * int(bool(row["output_clip_r"]))
-        stereo_penalty = 50.0 * min(float(row["channel_deviation_rms"]), 1.0)
-        spectral_penalty = 1.8 * float(row["freq_response_delta_db"])
-        transient_penalty = 8.0 * float(row["transient_delta"])
-        gain_std_penalty = 2.5 * float(row["gain_curve_std_db"])
-        corr_penalty = 35.0 * max(0.0, 0.95 - float(row["correlation"]))
-        score -= clip_penalty + stereo_penalty + spectral_penalty + transient_penalty + gain_std_penalty + corr_penalty
-    return float(score)
+        plausibility_score -= _case_plausibility_penalty(row)
+        if row["mse_vs_reference"] is not None:
+            reference_cases += 1
+            reference_score += 100.0
+            reference_score -= 1000.0 * float(row["mse_vs_reference"])
+            reference_score -= 1.7 * float(row["freq_response_delta_db_vs_reference"])
+            reference_score -= 7.0 * float(row["transient_delta_vs_reference"])
+            reference_score -= 45.0 * max(0.0, 0.90 - float(row["correlation_vs_reference"]))
+
+    if means:
+        mean_spread = float(np.max(means) - np.min(means))
+        plausibility_score -= 5.0 * max(0.0, mean_spread - 16.0)
+    if level_spans:
+        insufficient_level_coverage = 25.0 * max(0.0, 14.0 - max(level_spans))
+        plausibility_score -= insufficient_level_coverage
+
+    total = plausibility_score + reference_score
+    return {
+        "score_total": float(total),
+        "score_plausibility": float(plausibility_score),
+        "score_reference": float(reference_score),
+        "reference_case_count": int(reference_cases),
+    }
+
+
+def score_candidate(metrics: list[dict[str, float | bool | int | None]]) -> float:
+    return float(evaluate_scores(metrics)["score_total"])
 
 
 def tone(fs: int, seconds: float, freq: float, level_db: float, phase: float = 0.0) -> np.ndarray:
@@ -291,6 +368,23 @@ def build_cases(fs: int) -> dict[str, np.ndarray]:
     }
 
 
+
+
+def select_tuning_cases(cases: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    preferred = [
+        "sine_-24db",
+        "sine_-6db",
+        "log_sweep",
+        "pink_noise",
+        "bursts",
+        "envelope_steps",
+        "music_like",
+        "hf_burst_train",
+        "transient_train",
+        "fast_level_switches",
+    ]
+    return {k: cases[k] for k in preferred if k in cases}
+
 def parse_override_pairs(values: list[str]) -> dict[str, float]:
     out: dict[str, float] = {}
     for item in values:
@@ -301,37 +395,33 @@ def parse_override_pairs(values: list[str]) -> dict[str, float]:
     return out
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
-    ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
-    ap.add_argument("--reference-dir", type=Path)
-    ap.add_argument("--write-wavs", action="store_true")
-    ap.add_argument("--override", action="append", default=[], help="Decoder override key=value (repeatable)")
-    ap.add_argument("--tune", action="store_true", help="Run a compact grid search and report the best candidate.")
-    ap.add_argument("--tune-fs", type=int, default=4000, help="Sample rate for tuning search workload (default: 4000)")
-    args = ap.parse_args()
+def load_reference(reference_dir: Path | None, case_name: str, fs: int) -> np.ndarray | None:
+    if reference_dir is None:
+        return None
+    ref_path = reference_dir / f"{case_name}.wav"
+    if not ref_path.exists():
+        return None
+    ref_fs, ref_audio = read_audio(ref_path)
+    if ref_fs != fs:
+        return None
+    return ref_audio
 
-    profile = json.loads(args.profile.read_text())
-    fs = int(profile["sample_rate_hz"])
-    cases = build_cases(fs)
-    user_overrides = parse_override_pairs(args.override)
-    params = Params.from_profile(args.profile, **user_overrides)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
+def evaluate_candidate(
+    profile_path: Path,
+    fs: int,
+    cases: dict[str, np.ndarray],
+    overrides: dict[str, float] | None = None,
+    reference_dir: Path | None = None,
+) -> list[dict[str, float | bool | int | None | str]]:
+    overrides = overrides or {}
+    params = Params.from_profile(profile_path, **overrides)
+    rows: list[dict[str, float | bool | int | None | str]] = []
     for name, inp in cases.items():
         decoder = Decoder(fs, params)
         out = decoder.process(inp)
-        ref = None
-        if args.reference_dir:
-            ref_path = args.reference_dir / f"{name}.wav"
-            if ref_path.exists():
-                ref_fs, ref_audio = read_audio(ref_path)
-                if ref_fs == fs:
-                    ref = ref_audio
-
-        metrics = {
+        ref = load_reference(reference_dir, name, fs)
+        row: dict[str, float | bool | int | None | str] = {
             "case": name,
             **{f"input_{k}": v for k, v in summarize_signal("input", inp).items() if k != "name"},
             **{f"output_{k}": v for k, v in summarize_signal("output", out).items() if k != "name"},
@@ -342,16 +432,93 @@ def main() -> None:
             "output_clip_r": bool(decoder.output_clip[1]),
             "reference_available": ref is not None,
         }
-        results.append(metrics)
-        if args.write_wavs:
+        rows.append(row)
+    return rows
+
+
+def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_candidates: int = 24) -> dict[str, object]:
+    base = json.loads(profile_path.read_text())["decoder"]
+    grid = {
+        "strength": [base["strength"], min(1.25, base["strength"] + 0.06)],
+        "attack_ms": [base["attack_ms"], base["attack_ms"] + 1.0],
+        "release_ms": [base["release_ms"], base["release_ms"] + 30.0],
+        "deemph_db": [base["deemph_db"], base["deemph_db"] + 1.0],
+        "sidechain_shelf_db": [base["sidechain_shelf_db"], base["sidechain_shelf_db"] + 2.0],
+        "headroom_db": [base["headroom_db"], min(6.0, base["headroom_db"] + 0.5)],
+    }
+
+    coarse_cases = select_tuning_cases(build_cases(tune_fs))
+    final_cases = select_tuning_cases(build_cases(final_fs))
+
+    coarse_results = []
+    keys = list(grid.keys())
+    for idx, values in enumerate(itertools.product(*(grid[k] for k in keys))):
+        if idx >= max(1, max_candidates):
+            break
+        cand = {k: float(v) for k, v in zip(keys, values)}
+        rows = evaluate_candidate(profile_path, tune_fs, coarse_cases, cand)
+        score = evaluate_scores(rows)
+        coarse_results.append({"params": cand, **score})
+
+    coarse_results.sort(key=lambda x: float(x["score_total"]), reverse=True)
+    finalists = coarse_results[: max(1, top_k)]
+
+    final_results = []
+    for item in finalists:
+        cand = item["params"]
+        rows = evaluate_candidate(profile_path, final_fs, final_cases, cand)
+        score = evaluate_scores(rows)
+        final_results.append({"params": cand, **score, "coarse_score_total": item["score_total"]})
+
+    final_results.sort(key=lambda x: float(x["score_total"]), reverse=True)
+    return {
+        "coarse_fs": tune_fs,
+        "final_fs": final_fs,
+        "candidate_limit": max(1, max_candidates),
+        "candidate_count": len(coarse_results),
+        "top_k_finalists": len(final_results),
+        "coarse_ranking": coarse_results,
+        "final_ranking": final_results,
+        "best": final_results[0] if final_results else None,
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
+    ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
+    ap.add_argument("--reference-dir", type=Path)
+    ap.add_argument("--write-wavs", action="store_true")
+    ap.add_argument("--override", action="append", default=[], help="Decoder override key=value (repeatable)")
+    ap.add_argument("--tune", action="store_true", help="Run a compact grid search and report the best candidate.")
+    ap.add_argument("--tune-fs", type=int, default=4000, help="Coarse sample rate for tuning search workload (default: 4000)")
+    ap.add_argument("--tune-final-fs", type=int, default=44100, help="Final rerank sample rate for tuning (default: 44100)")
+    ap.add_argument("--tune-top-k", type=int, default=6, help="Number of coarse finalists to rerank at final sample rate.")
+    ap.add_argument("--tune-max-candidates", type=int, default=24, help="Limit of coarse candidates to evaluate for compact tuning runs.")
+    args = ap.parse_args()
+
+    profile = json.loads(args.profile.read_text())
+    fs = int(profile["sample_rate_hz"])
+    cases = build_cases(fs)
+    user_overrides = parse_override_pairs(args.override)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    results = evaluate_candidate(args.profile, fs, cases, user_overrides, args.reference_dir)
+    if args.write_wavs:
+        params = Params.from_profile(args.profile, **user_overrides)
+        for name, inp in cases.items():
+            decoder = Decoder(fs, params)
+            out = decoder.process(inp)
             write_audio(args.out_dir / f"{name}_input.wav", fs, inp)
             write_audio(args.out_dir / f"{name}_output.wav", fs, out)
 
     (args.out_dir / "metrics.json").write_text(json.dumps(results, indent=2))
+    score_summary = evaluate_scores(results)
     summary = {
-        "score": score_candidate(results),
+        **score_summary,
         "cases": len(results),
         "overrides": user_overrides,
+        "reference_cases": int(sum(1 for row in results if bool(row["reference_available"]))),
     }
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     try:
@@ -362,49 +529,14 @@ def main() -> None:
         pass
 
     if args.tune:
-        tune_fs = int(max(1000, args.tune_fs))
-        tune_cases = build_cases(tune_fs)
-        base = json.loads(args.profile.read_text())["decoder"]
-        grid = {
-            "strength": [base["strength"], min(1.25, base["strength"] + 0.06)],
-            "attack_ms": [base["attack_ms"], base["attack_ms"] + 1.0],
-            "release_ms": [base["release_ms"], base["release_ms"] + 30.0],
-            "deemph_db": [base["deemph_db"], base["deemph_db"] + 1.0],
-            "sidechain_shelf_db": [base["sidechain_shelf_db"], base["sidechain_shelf_db"] + 2.0],
-            "headroom_db": [base["headroom_db"], min(6.0, base["headroom_db"] + 0.5)],
-        }
-        best: tuple[float, dict[str, float]] | None = None
-        for strength in grid["strength"]:
-            for attack_ms in grid["attack_ms"]:
-                for release_ms in grid["release_ms"]:
-                    for deemph_db in grid["deemph_db"]:
-                        for sidechain_shelf_db in grid["sidechain_shelf_db"]:
-                            for headroom_db in grid["headroom_db"]:
-                                cand = {
-                                    "strength": strength,
-                                    "attack_ms": attack_ms,
-                                    "release_ms": release_ms,
-                                    "deemph_db": deemph_db,
-                                    "sidechain_shelf_db": sidechain_shelf_db,
-                                    "headroom_db": headroom_db,
-                                }
-                                d = Decoder(tune_fs, Params.from_profile(args.profile, **cand))
-                                rows = []
-                                for name, inp in tune_cases.items():
-                                    out = d.process(inp)
-                                    rows.append(
-                                        {
-                                            "case": name,
-                                            **compare(inp, out),
-                                            "output_clip_l": bool(d.output_clip[0]),
-                                            "output_clip_r": bool(d.output_clip[1]),
-                                        }
-                                    )
-                                s = score_candidate(rows)
-                                if best is None or s > best[0]:
-                                    best = (s, cand)
-        if best:
-            (args.out_dir / "tuning_best.json").write_text(json.dumps({"score": best[0], "params": best[1]}, indent=2))
+        tuning = run_tuning(
+            profile_path=args.profile,
+            tune_fs=int(max(1000, args.tune_fs)),
+            final_fs=int(max(4000, args.tune_final_fs)),
+            top_k=int(max(1, args.tune_top_k)),
+            max_candidates=int(max(1, args.tune_max_candidates)),
+        )
+        (args.out_dir / "tuning_best.json").write_text(json.dumps(tuning, indent=2))
 
 
 if __name__ == "__main__":
