@@ -1,9 +1,4 @@
-from pathlib import Path
 
-import numpy as np
-
-from ocx_type2_harness import build_cases
-from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params
 
 
 def test_profile_defaults_load():
@@ -27,3 +22,4 @@ def test_stereo_identity_case_remains_balanced():
     out = Decoder(44100, params).process(audio)
     diff = np.max(np.abs(out[:, 0] - out[:, 1]))
     assert diff < 1e-9
+

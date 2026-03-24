@@ -1,6 +1,6 @@
 # OpenCompanderX / OCX Type 2
 
-OpenCompanderX is a **decoder-only Type-II compander playback project** for the fixed target hardware below. The current repo now includes:
+
 
 - real Teensy 4.1 firmware for analog line-in to analog line/headphone out,
 - a matching offline WAV simulator,
@@ -30,6 +30,7 @@ This project is intentionally scoped to exactly this playback chain:
 - Automated regression harness executed across synthetic edge cases.
 - Pytest regression tests executed.
 
+
 ### What is **not** fully simulatable offline
 
 The following still require physical hardware and real analog wiring:
@@ -52,9 +53,6 @@ The following still require physical hardware and real analog wiring:
 
 ## Universal default profile
 
-There is exactly **one** factory profile. It is intentionally conservative for mixed consumer analog sources.
-
-Default rationale:
 
 - **input trim -3 dB:** leaves more margin for portable headphone outputs that can run hotter than line-level.
 - **output trim -1 dB + 1 dB headroom:** reduces avoidable soft-clip engagement during difficult material.
@@ -93,7 +91,7 @@ The repo also supports a real command-line build with PlatformIO.
 ### Install tools
 
 ```bash
-python3 -m pip install numpy scipy soundfile matplotlib pytest pandas platformio
+
 ```
 
 ### Build firmware for Teensy 4.1
@@ -142,7 +140,7 @@ python3 ocx_type2_wav_sim.py input.wav decoded.wav --plot
 Requirements:
 
 - WAV sample rate should be **44.1 kHz** for direct comparability with the Teensy audio path.
-- Mono files are mirrored to stereo automatically.
+
 
 ## Automated harness / regression measurements
 
@@ -207,4 +205,4 @@ pytest -q
 - No proprietary plugin/reference archive was present in this working tree, so no black-box reference measurement was possible here.
 - The harness can compare against a separate reference-output directory if such outputs are legally available later.
 - Without real hardware, claims are limited to compile correctness, numerical stability, offline behavior, and configuration consistency.
-- The current project is **practically buildable and testable**, but **not proven bit-exact** to any proprietary decoder.
+

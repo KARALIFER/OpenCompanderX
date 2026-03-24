@@ -1,4 +1,3 @@
 .pio/
 __pycache__/
 *.pyc
-artifacts/harness/*.wav

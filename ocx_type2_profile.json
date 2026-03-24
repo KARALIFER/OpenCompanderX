@@ -4,7 +4,7 @@
   "audio_memory_blocks": 64,
   "codec": {
     "input": "linein",
-    "line_in_level": 5,
+
     "line_out_level": 29,
     "headphone_source": "dac",
     "headphone_volume": 0.45

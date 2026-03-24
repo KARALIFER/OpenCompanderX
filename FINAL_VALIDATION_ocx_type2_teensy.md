@@ -64,7 +64,6 @@ Installed and used:
 - numpy
 - scipy
 - soundfile
-- matplotlib
 - pytest
 - pandas
 
@@ -110,6 +109,7 @@ This confirms, at compile/link level:
 ### Robustness improvements
 
 - Added a synchronized profile file for shared defaults.
+
 - Increased `AudioMemory` from 48 to 64 blocks for safer runtime margin.
 - Added a one-pole DC blocker before detector/audio gain application.
 - Added float sanitation in DSP paths to reduce NaN/Inf propagation risk.
@@ -119,6 +119,7 @@ This confirms, at compile/link level:
 ### Universal-profile tuning changes
 
 The default profile was moved to a more conservative single-profile setting:
+
 
 - input trim: `-3 dB`
 - output trim: `-1 dB`
@@ -132,7 +133,7 @@ The default profile was moved to a more conservative single-profile setting:
 
 ### Why these changes were technically justified
 
-- Portable headphone outputs can be materially hotter than true line-level, so extra input margin is safer.
+
 - Slight output attenuation and dedicated headroom reduce unnecessary limiter engagement.
 - Higher sidechain HP reduces rumble/bass pumping.
 - Milder de-emphasis is a better universal starting point than a much darker shelf.
@@ -143,8 +144,7 @@ The default profile was moved to a more conservative single-profile setting:
 ### Simulator improvements
 
 - Reworked the simulator to load defaults from `ocx_type2_profile.json`.
-- Fixed plotting mode.
-- Added DC blocking, headroom, and clip telemetry to match firmware intent more closely.
+
 - Kept the same broad topology as firmware: dual-mono detector, sidechain filters, envelope detector, gain law, de-emphasis, soft clip.
 
 ### New automated harness
@@ -233,7 +233,7 @@ Not verifiable here:
 
 ### Practical status
 
-**Praktisch gut** for the current stage.
+
 
 Reason:
 
