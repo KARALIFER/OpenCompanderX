@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ocx_type2_harness as harness_module
-from ocx_type2_harness import build_cases, compare, evaluate_scores, run_tuning
+from ocx_type2_harness import build_cases, compare, evaluate_scores, run_detector_study, run_tuning
 from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params, ensure_stereo
 
 
@@ -108,7 +108,7 @@ def test_compare_handles_reference_length_mismatch_without_crash():
     assert int(metrics["reference_samples_used"]) == len(short_ref)
 
 
-def test_no_reference_score_ignores_input_similarity_metrics():
+def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is_high():
     base = {
         "case": "synthetic",
         "output_clip_l": False,
@@ -133,16 +133,25 @@ def test_no_reference_score_ignores_input_similarity_metrics():
         "correlation": 1.0,
         "residual_rms": 0.0,
     }
-    changed_similarity = dict(base)
-    changed_similarity["mse"] = 0.35
-    changed_similarity["mae"] = 0.42
-    changed_similarity["max_abs_error"] = 0.8
-    changed_similarity["correlation"] = 0.12
-    changed_similarity["residual_rms"] = 0.55
+    under_decoded = dict(base)
+    under_decoded["input_rms"] = 0.12
+    under_decoded["output_rms"] = 0.118
+    under_decoded["decode_action_ratio"] = 0.01
+    under_decoded["gain_curve_mean_db"] = -0.05
+    under_decoded["correlation"] = 0.999
+    under_decoded["residual_rms"] = 0.0012
 
-    score_a = float(evaluate_scores([base])["score_total"])
-    score_b = float(evaluate_scores([changed_similarity])["score_total"])
-    assert score_a == score_b
+    plausibly_decoded = dict(base)
+    plausibly_decoded["input_rms"] = 0.12
+    plausibly_decoded["output_rms"] = 0.1
+    plausibly_decoded["decode_action_ratio"] = 0.12
+    plausibly_decoded["gain_curve_mean_db"] = -1.2
+    plausibly_decoded["correlation"] = 0.94
+    plausibly_decoded["residual_rms"] = 0.015
+
+    score_under = float(evaluate_scores([under_decoded])["score_total"])
+    score_decoded = float(evaluate_scores([plausibly_decoded])["score_total"])
+    assert score_decoded > score_under
 
 
 def test_tuning_rerank_uses_44100_final_stage():
@@ -165,6 +174,46 @@ def test_tuning_rerank_uses_44100_final_stage():
     assert len(run["coarse_ranking"]) > 0
     assert len(run["final_ranking"]) == 1
     assert run["best"] == run["final_ranking"][0]
+
+
+def test_tuning_mode_is_reproducible_for_identical_inputs():
+    original_build_cases = harness_module.build_cases
+
+    def tiny_cases(fs: int):
+        _ = fs
+        return {
+            "tiny_a": np.zeros((256, 2), dtype=np.float64),
+            "tiny_b": np.full((256, 2), 0.03, dtype=np.float64),
+        }
+
+    harness_module.build_cases = tiny_cases
+    try:
+        run_a = run_tuning(PROFILE_PATH, tune_fs=4000, final_fs=44_100, top_k=1, max_candidates=3)
+        run_b = run_tuning(PROFILE_PATH, tune_fs=4000, final_fs=44_100, top_k=1, max_candidates=3)
+    finally:
+        harness_module.build_cases = original_build_cases
+
+    assert run_a["best"] == run_b["best"]
+    assert run_a["final_ranking"] == run_b["final_ranking"]
+
+
+def test_detector_study_reports_both_modes():
+    original_build_cases = harness_module.build_cases
+
+    def tiny_cases(fs: int):
+        _ = fs
+        return {
+            "tiny_a": np.zeros((256, 2), dtype=np.float64),
+            "tiny_b": np.full((256, 2), 0.03, dtype=np.float64),
+        }
+
+    harness_module.build_cases = tiny_cases
+    try:
+        report = run_detector_study(PROFILE_PATH, fs=44_100)
+    finally:
+        harness_module.build_cases = original_build_cases
+    assert "energy" in report
+    assert "rms" in report
 
 
 def test_profile_and_firmware_defaults_are_synced():

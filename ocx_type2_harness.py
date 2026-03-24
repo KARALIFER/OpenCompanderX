@@ -120,8 +120,14 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
     assert out_a is not None
 
     residual = out_a - inp_a
+    input_rms = float(np.sqrt(np.mean(np.square(inp_a))))
+    output_rms = float(np.sqrt(np.mean(np.square(out_a))))
+    residual_rms = float(np.sqrt(np.mean(np.square(residual))))
     metrics: dict[str, float | int | None] = {
-        "residual_rms": float(np.sqrt(np.mean(np.square(residual)))),
+        "residual_rms": residual_rms,
+        "input_rms": input_rms,
+        "output_rms": output_rms,
+        "decode_action_ratio": float(residual_rms / max(input_rms, 1.0e-12)),
         **gain_curve_stats(inp_a, out_a),
         "mse": float(np.mean(np.square(residual))),
         "mae": float(np.mean(np.abs(residual))),
@@ -172,6 +178,13 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
     spectral_penalty = 2.0 * max(0.0, float(row["freq_response_delta_db"]) - 5.5)
     transient_penalty = 16.0 * max(0.0, float(row["transient_delta"]) - 0.25)
     softclip_penalty = 10.0 * float(row["soft_clip_dependency"])
+    under_decode_penalty = 0.0
+    if float(row["input_rms"]) > 0.015:
+        under_decode_penalty += 220.0 * max(0.0, 0.06 - float(row["decode_action_ratio"]))
+        under_decode_penalty += 36.0 * max(0.0, 0.35 - abs(float(row["gain_curve_mean_db"])))
+        if float(row["correlation"]) > 0.995 and float(row["decode_action_ratio"]) < 0.08:
+            under_decode_penalty += 35.0
+    level_span_penalty = 5.0 * max(0.0, 12.0 - float(row["input_level_span_db"]))
     return (
         clip_penalty
         + stereo_penalty
@@ -181,6 +194,8 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
         + spectral_penalty
         + transient_penalty
         + softclip_penalty
+        + under_decode_penalty
+        + level_span_penalty
     )
 
 
@@ -472,6 +487,7 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
 
     final_results.sort(key=lambda x: float(x["score_total"]), reverse=True)
     return {
+        "method": "two_stage_tuning",
         "coarse_fs": tune_fs,
         "final_fs": final_fs,
         "candidate_limit": max(1, max_candidates),
@@ -480,6 +496,19 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
         "coarse_ranking": coarse_results,
         "final_ranking": final_results,
         "best": final_results[0] if final_results else None,
+    }
+
+
+def run_detector_study(profile_path: Path, fs: int) -> dict[str, object]:
+    cases = select_tuning_cases(build_cases(fs))
+    energy = evaluate_candidate(profile_path, fs, cases, {"detector_mode": "energy"})
+    rms = evaluate_candidate(profile_path, fs, cases, {"detector_mode": "rms", "detector_rms_ms": 6.0})
+    return {
+        "fs": fs,
+        "energy": evaluate_scores(energy),
+        "rms": evaluate_scores(rms),
+        "cpu_note": "rms mode adds one extra detector IIR state/update per sample and channel in simulator.",
+        "realtime_note": "Expected to be practical on Teensy 4.1, but firmware-side CPU headroom must still be validated on hardware telemetry.",
     }
 
 
@@ -495,6 +524,7 @@ def main() -> None:
     ap.add_argument("--tune-final-fs", type=int, default=44100, help="Final rerank sample rate for tuning (default: 44100)")
     ap.add_argument("--tune-top-k", type=int, default=6, help="Number of coarse finalists to rerank at final sample rate.")
     ap.add_argument("--tune-max-candidates", type=int, default=24, help="Limit of coarse candidates to evaluate for compact tuning runs.")
+    ap.add_argument("--detector-study", action="store_true", help="Compare energy-like detector and RMS-nearer detector in simulator.")
     args = ap.parse_args()
 
     profile = json.loads(args.profile.read_text())
@@ -537,6 +567,9 @@ def main() -> None:
             max_candidates=int(max(1, args.tune_max_candidates)),
         )
         (args.out_dir / "tuning_best.json").write_text(json.dumps(tuning, indent=2))
+    if args.detector_study:
+        study = run_detector_study(args.profile, fs=fs)
+        (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
 
 
 if __name__ == "__main__":

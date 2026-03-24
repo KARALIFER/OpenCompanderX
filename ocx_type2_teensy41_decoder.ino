@@ -443,15 +443,40 @@ void printHelp() {
 }
 
 void printTelemetry() {
+  const float cpuNow = AudioProcessorUsage();
+  const float cpuMax = AudioProcessorUsageMax();
+  const uint32_t memNow = AudioMemoryUsage();
+  const uint32_t memMax = AudioMemoryUsageMax();
+  const uint32_t memCfg = OCXProfile::kAudioMemoryBlocks;
+  const bool cpuTight = cpuMax > 80.0f;
+  const bool memTight = memMax + 4 >= memCfg;
   Serial.println();
   Serial.println(F("---- OCX TELEMETRY ----"));
-  Serial.print(F("CPU usage now/max (%): ")); Serial.print(AudioProcessorUsage(), 2); Serial.print(F(" / ")); Serial.println(AudioProcessorUsageMax(), 2);
-  Serial.print(F("AudioMemory now/max blocks: ")); Serial.print(AudioMemoryUsage()); Serial.print(F(" / ")); Serial.println(AudioMemoryUsageMax());
+  Serial.print(F("CPU usage now/max (%): ")); Serial.print(cpuNow, 2); Serial.print(F(" / ")); Serial.println(cpuMax, 2);
+  Serial.print(F("AudioMemory now/max blocks: ")); Serial.print(memNow); Serial.print(F(" / ")); Serial.print(memMax); Serial.print(F(" of ")); Serial.println(memCfg);
   Serial.print(F("Alloc fail count: ")); Serial.println(ocx.getAllocFailCount());
   Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
   Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
-  Serial.println(F("Interpretation: keep CPU max below sustained overload, keep AudioMemory max below configured blocks, allocFail must stay 0."));
+  Serial.print(F("CPU reserve: ")); Serial.println(cpuTight ? F("TIGHT") : F("OK"));
+  Serial.print(F("AudioMemory reserve: ")); Serial.println(memTight ? F("TIGHT") : F("OK"));
+  Serial.println(F("Interpretation: CPU and AudioMemory should remain OK in multi-minute runs; allocFail must stay 0."));
   Serial.println();
+}
+
+void printCompactTelemetryLine() {
+  const float cpuNow = AudioProcessorUsage();
+  const float cpuMax = AudioProcessorUsageMax();
+  const uint32_t memNow = AudioMemoryUsage();
+  const uint32_t memMax = AudioMemoryUsageMax();
+  const uint32_t memCfg = OCXProfile::kAudioMemoryBlocks;
+  Serial.print(F("[TLM] cpuNow=")); Serial.print(cpuNow, 1);
+  Serial.print(F("% cpuMax=")); Serial.print(cpuMax, 1);
+  Serial.print(F("% memNow=")); Serial.print(memNow);
+  Serial.print(F(" memMax=")); Serial.print(memMax);
+  Serial.print(F("/")); Serial.print(memCfg);
+  Serial.print(F(" allocFail=")); Serial.print(ocx.getAllocFailCount());
+  Serial.print(F(" inClip=")); Serial.print(ocx.getInputClipCount());
+  Serial.print(F(" outClip=")); Serial.println(ocx.getOutputClipCount());
 }
 
 void printStatus() {
@@ -486,7 +511,7 @@ void handleSerial() {
     switch (c) {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
-      case 'm': printTelemetry(); break;
+      case 'm': printCompactTelemetryLine(); break;
       case 'x': ocx.clearClipFlags(); break;
       case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
       case 'B': ocx.resetState(); break;

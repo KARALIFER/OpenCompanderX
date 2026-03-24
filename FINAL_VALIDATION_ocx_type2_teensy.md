@@ -15,6 +15,7 @@ Die Methodik trennt strikt:
 - Tuning läuft zweistufig: **coarse low-rate** + **final 44.1-kHz Re-Ranking**.
 - Referenzpfad ist im Harness sauber getrennt modelliert.
 - Firmware-Telemetrie ist kompakt (`m`) und als Hardware-Testablauf interpretierbar dokumentiert.
+- Simulator bietet zusätzlich einen RMS-näheren Detectorpfad für methodische A/B-Vergleiche gegen den bisherigen energy-nahen Pfad.
 - Universalprofil bleibt konservativ (`ocx_type2_universal_v2`), ohne Über-Claims.
 
 ## Methodikdetails
@@ -32,6 +33,7 @@ Bewertet werden u. a.:
 - unplausible Reaktion über unterschiedliche Eingangspegel
 
 Nicht als Primärziel: maximale Input-Ähnlichkeit.
+Zusätzlich wird eine zu schwache Dekodierwirkung (Under-Decoding) explizit bestraft, damit „Input fast unverändert“ nicht trivial gewinnt.
 
 ## B) Referenzvergleich (optional)
 
@@ -72,6 +74,7 @@ Keine doppelte Type-II-Encode-Kette im Vergleichspfad aufbauen.
 
 400-Hz-Ton ist nur Kalibrierhilfe, nicht alleiniger Decoderabgleich.
 Ergänzend nutzen: Mehrpegel-Sinus, Bursts, Envelope-Steps, Noise, Sweep, Musik.
+Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Converter) sind Referenzpfad-Werkzeuge, nicht stillschweigende Kernfunktion des OCX-Decoders.
 
 ## Hardware-Testablauf (telemetriegeführt)
 
@@ -85,6 +88,8 @@ Ergänzend nutzen: Mehrpegel-Sinus, Bursts, Envelope-Steps, Noise, Sweep, Musik.
    - AudioMemory-Reserve ausreichend? (`AudioMemoryUsageMax < AudioMemory(64)`)
    - `allocFailCount == 0`?
    - `inputClipCount`/`outputClipCount` unauffällig?
+
+`m` liefert dafür eine kompakte Einzeile (`[TLM] ...`) ohne seriellen Spam im Audiopfad.
 
 ## Profilentscheidungslogik
 
@@ -100,8 +105,11 @@ Nicht gewählte Kandidaten (typische Gründe):
 - aggressiveres Release: stärkere Gain-Sprünge/Pump-Anzeichen
 - stark reduzierte De-Emphasis: unplausible HF-Verfärbung
 
+Finale Auswahl bleibt an 44.1-kHz-Ergebnissen gebunden; Low-Rate-Sweeps dienen nur als Vorscan.
+
 ## Grenzen / offene Unsicherheiten
 
 - Keine Bitexact-/Originalgleich-/Referenzgleich-Claims ohne harte Messkette.
 - Endgültige Bewertung bleibt hardware- und materialabhängig.
 - Black-Box-Demos ohne exakt dokumentierten Prozesspfad sind nur Hinweis, keine harte Kalibrierreferenz.
+- RMS-nahe Detector-Variante ist aktuell primär als Simulator-/Methodikwerkzeug bewertet; Firmwareseitige Aktivierung bleibt offen bis echte CPU-/Telemetry-Reserve auf Hardware geprüft ist.
