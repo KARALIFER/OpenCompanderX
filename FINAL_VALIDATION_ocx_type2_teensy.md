@@ -64,7 +64,6 @@ Installed and used:
 - numpy
 - scipy
 - soundfile
-- matplotlib (optional only when `--plot` is used)
 - pytest
 - pandas
 
@@ -110,7 +109,7 @@ This confirms, at compile/link level:
 ### Robustness improvements
 
 - Added a synchronized profile file for shared defaults.
-- Switched the universal codec input default to `lineInLevel(0)` because there is no harder counter-evidence in this repo for a hotter default.
+
 - Increased `AudioMemory` from 48 to 64 blocks for safer runtime margin.
 - Added a one-pole DC blocker before detector/audio gain application.
 - Added float sanitation in DSP paths to reduce NaN/Inf propagation risk.
@@ -121,7 +120,7 @@ This confirms, at compile/link level:
 
 The default profile was moved to a more conservative single-profile setting:
 
-- codec line input level: `0`
+
 - input trim: `-3 dB`
 - output trim: `-1 dB`
 - strength: `0.76`
@@ -134,7 +133,7 @@ The default profile was moved to a more conservative single-profile setting:
 
 ### Why these changes were technically justified
 
-- Portable headphone outputs can be materially hotter than true line-level, so extra analog and DSP-side input margin is safer.
+
 - Slight output attenuation and dedicated headroom reduce unnecessary limiter engagement.
 - Higher sidechain HP reduces rumble/bass pumping.
 - Milder de-emphasis is a better universal starting point than a much darker shelf.
@@ -145,9 +144,7 @@ The default profile was moved to a more conservative single-profile setting:
 ### Simulator improvements
 
 - Reworked the simulator to load defaults from `ocx_type2_profile.json`.
-- Fixed the mono/stereo input path so `(N,)`, `(N,1)`, and `(N,2)` inputs are handled consistently.
-- Made plotting optional so `matplotlib` is only imported for `--plot`.
-- Added DC blocking, headroom, clip telemetry, and finite-value guarding to match firmware intent more closely.
+
 - Kept the same broad topology as firmware: dual-mono detector, sidechain filters, envelope detector, gain law, de-emphasis, soft clip.
 
 ### New automated harness
@@ -236,7 +233,7 @@ Not verifiable here:
 
 ### Practical status
 
-**Praktisch brauchbare Offline-Basis**, but still short of true hardware/reference validation.
+
 
 Reason:
 

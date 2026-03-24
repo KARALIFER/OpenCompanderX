@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
 
@@ -34,23 +35,7 @@ def db_to_lin(db: float) -> float:
     return 10.0 ** (db / 20.0)
 
 
-def soft_clip(x: np.ndarray | float, drive: float) -> np.ndarray | float:
-    x = np.asarray(x, dtype=np.float64)
-    y = np.tanh(drive * x) / np.tanh(drive)
-    return np.nan_to_num(y, nan=0.0, posinf=1.0, neginf=-1.0)
 
-
-def ensure_stereo(audio: np.ndarray) -> np.ndarray:
-    audio = np.asarray(audio, dtype=np.float64)
-    if audio.ndim == 1:
-        return np.column_stack([audio, audio])
-    if audio.ndim != 2:
-        raise ValueError(f"Expected audio with shape (N,), (N,1), or (N,2); got {audio.shape}")
-    if audio.shape[1] == 1:
-        return np.repeat(audio, 2, axis=1)
-    if audio.shape[1] == 2:
-        return audio
-    raise ValueError(f"Expected audio with shape (N,), (N,1), or (N,2); got {audio.shape}")
 
 
 @dataclass(frozen=True)
@@ -92,7 +77,7 @@ class Biquad:
         self.z2 = 0.0
 
     def process(self, x: float) -> float:
-        x = sanitize_scalar(x)
+
         y = self.b0 * x + self.z1
         self.z1 = sanitize_scalar(self.b1 * x - self.a1 * y + self.z2)
         self.z2 = sanitize_scalar(self.b2 * x - self.a2 * y)
@@ -122,6 +107,22 @@ class OnePoleHP:
     def reset(self) -> None:
         self.prev_x = 0.0
         self.prev_y = 0.0
+
+
+class OnePoleHP:
+    def __init__(self, fs: float, hz: float):
+        hz = max(hz, 0.1)
+        rc = 1.0 / (2.0 * math.pi * hz)
+        dt = 1.0 / fs
+        self.alpha = rc / (rc + dt)
+        self.prev_x = 0.0
+        self.prev_y = 0.0
+
+    def process(self, x: float) -> float:
+        y = self.alpha * (self.prev_y + x - self.prev_x)
+        self.prev_x = x
+        self.prev_y = y
+        return y
 
 
 def design_highpass(fs: float, hz: float, q: float = 0.7071) -> Biquad:
@@ -193,10 +194,7 @@ class Decoder:
         self.__init__(self.fs, self.p)
 
     def process_channel(self, x: np.ndarray, ch: int) -> np.ndarray:
-        x = np.asarray(x, dtype=np.float64).reshape(-1)
-        out = np.zeros_like(x)
-        for i, sample in enumerate(x):
-            x0 = self.dc_block[ch].process(float(sample) * self.input_gain)
+
             if abs(x0) > 0.98:
                 self.input_clip[ch] = True
 
@@ -207,47 +205,12 @@ class Decoder:
 
             sc = self.sc_hp[ch].process(x0)
             sc = self.sc_shelf[ch].process(sc)
-            power = sanitize_scalar(sc * sc, 0.0, 1.0e12)
-            coeff = self.attack_coeff if power > self.env2[ch] else self.release_coeff
-            self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * power, 0.0, 1.0e12)
-            env = math.sqrt(max(self.env2[ch] + 1.0e-12, 1.0e-12))
-            level_db = 20.0 * math.log10(max(env, 1.0e-12))
-            gain_db = clamp((level_db - self.p.reference_db) * self.p.strength, -self.p.max_cut_db, self.p.max_boost_db)
-            y = sanitize_scalar(x0 * db_to_lin(gain_db))
-            y = self.deemph[ch].process(y)
-            y = sanitize_scalar(y * self.output_gain * self.headroom_gain)
+
             y = soft_clip(y, self.p.soft_clip_drive)
             y = float(np.clip(y, -1.0, 1.0))
             if abs(y) > 0.98:
                 self.output_clip[ch] = True
             out[i] = y
-        return sanitize_array(out)
-
-    def process(self, audio: np.ndarray) -> np.ndarray:
-        stereo = ensure_stereo(audio)
-        y = np.zeros_like(stereo, dtype=np.float64)
-        y[:, 0] = self.process_channel(stereo[:, 0], 0)
-        y[:, 1] = self.process_channel(stereo[:, 1], 1)
-        return sanitize_array(y)
-
-
-def read_audio(path: Path) -> tuple[int, np.ndarray]:
-    audio, fs = sf.read(path, always_2d=False)
-    return fs, ensure_stereo(audio)
-
-
-def write_audio(path: Path, fs: int, audio: np.ndarray) -> None:
-    sf.write(path, sanitize_array(ensure_stereo(audio)), fs, subtype="PCM_16")
-
-
-def summarize_signal(name: str, audio: np.ndarray) -> dict[str, float | str]:
-    audio = sanitize_array(ensure_stereo(audio))
-    peak = float(np.max(np.abs(audio)))
-    rms = float(np.sqrt(np.mean(np.square(audio))))
-    crest = float(peak / max(rms, 1.0e-12))
-    dc = float(np.mean(audio))
-    return {"name": name, "peak": peak, "rms": rms, "crest_factor": crest, "dc": dc}
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
@@ -280,7 +243,6 @@ def main() -> None:
     }, indent=2))
 
     if args.plot:
-        import matplotlib.pyplot as plt
 
         n = min(len(audio), fs * 2)
         t = np.arange(n) / fs

@@ -18,7 +18,7 @@
 namespace OCXProfile {
 static constexpr float kFs = AUDIO_SAMPLE_RATE_EXACT;
 static constexpr int kAudioMemoryBlocks = 64;
-static constexpr int kLineInLevel = 0;
+
 static constexpr int kLineOutLevel = 29;
 static constexpr float kHeadphoneVolume = 0.45f;
 static constexpr float kInputTrimDb = -3.0f;
