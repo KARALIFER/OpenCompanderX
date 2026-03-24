@@ -172,3 +172,11 @@ Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK
 ## Claims
 
 Dieses Projekt macht **keine** Bit-Exact-/Originalgleich-/Referenzgleich-Behauptung ohne harten Messbeleg.
+
+## Ehrlicher Kompatibilitätsstatus (dbx Type II Cassette)
+
+- Ziel bleibt maximale praktische Decoder-Kompatibilität für reale Type-II-Kassetten im genannten Hardware-Setup.
+- Der aktuelle Stand ist ein methodisch abgestimmter, stabiler Decoderpfad mit Type-II-orientierter Ballistik/Sidechain-Formung,
+  aber **nicht** als historisch standardgenauer dbx-Type-II-Decoder belegt.
+- Disc-spezifische Annahmen (z. B. implizite LF-Roll-off-Übernahmen) werden nicht stillschweigend als Cassette-Default übernommen.
+- Offene Restabweichungen werden über Harness- und Hardware-Messungen geführt, nicht durch Gleichheits-Claims kaschiert.
