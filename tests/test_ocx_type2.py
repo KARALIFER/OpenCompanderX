@@ -262,3 +262,15 @@ def test_profile_and_firmware_defaults_are_synced():
         assert match is not None, key
         actual = float(match.group(1))
         assert actual == float(expected), key
+
+
+def test_calibration_tone_level_and_decoder_reference_remain_separate():
+    profile = json.loads(PROFILE_PATH.read_text())
+    tone_dbfs = float(profile["tone"]["level_dbfs"])
+    reference_db = float(profile["decoder"]["reference_db"])
+    assert tone_dbfs != reference_db
+
+
+def test_help_text_mentions_400hz_calibration_tone():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "toggle 400 Hz calibration tone" in ino
