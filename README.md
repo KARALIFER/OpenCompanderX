@@ -223,7 +223,7 @@ git diff --check
 python -m py_compile ocx_type2_wav_sim.py ocx_type2_harness.py
 pytest -q
 pio run -e teensy41
-rg '<<<<<<<|=======|>>>>>>>'
+rg '^(<<<<<<<|=======|>>>>>>>)'
 ```
 
 Additional hard rules:
