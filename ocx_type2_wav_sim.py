@@ -277,7 +277,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--bypass", action="store_true")
+    ap.add_argument("--override", action="append", default=[], help="Decoder override as key=value (repeatable)")
     return ap
+
+
+def parse_overrides(pairs: list[str]) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    for item in pairs:
+        if "=" not in item:
+            raise ValueError(f"Override must use key=value, got '{item}'")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        raw = value.strip()
+        if not key:
+            raise ValueError(f"Override key missing in '{item}'")
+        try:
+            parsed: Any = float(raw)
+        except ValueError:
+            lowered = raw.lower()
+            if lowered in {"true", "false"}:
+                parsed = lowered == "true"
+            else:
+                parsed = raw
+        overrides[key] = parsed
+    return overrides
 
 
 def main() -> None:
@@ -288,7 +311,8 @@ def main() -> None:
     if fs != expected_fs:
         raise ValueError(f"Expected {expected_fs} Hz WAV for direct Teensy comparability, got {fs} Hz")
 
-    params = Params.from_profile(args.profile, bypass=args.bypass)
+    overrides = parse_overrides(args.override)
+    params = Params.from_profile(args.profile, bypass=args.bypass, **overrides)
     decoder = Decoder(fs, params)
     out = decoder.process(audio)
     write_audio(args.output_wav, fs, out)

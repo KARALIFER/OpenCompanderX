@@ -195,6 +195,10 @@ public:
 
   bool hasInputClip() const          { return inputClipFlag; }
   bool hasOutputClip() const         { return outputClipFlag; }
+  uint32_t getAllocFailCount() const { return allocFailCount; }
+  uint32_t getInputClipCount() const { return inputClipCount; }
+  uint32_t getOutputClipCount() const { return outputClipCount; }
+  void clearRuntimeCounters()        { allocFailCount = 0; inputClipCount = 0; outputClipCount = 0; }
   void clearClipFlags()              { inputClipFlag = false; outputClipFlag = false; }
   void resetState() {
     clearClipFlags();
@@ -212,6 +216,9 @@ private:
   bool  bypass = false;
   bool  inputClipFlag = false;
   bool  outputClipFlag = false;
+  uint32_t allocFailCount = 0;
+  uint32_t inputClipCount = 0;
+  uint32_t outputClipCount = 0;
 
   float inputTrimDb = 0.0f;
   float outputTrimDb = 0.0f;
@@ -277,12 +284,18 @@ private:
 
   inline float processOne(int ch, float x) {
     x = dcBlock[ch].process(sanitizef(x) * inputGain);
-    if (fabsf(x) > 0.98f) inputClipFlag = true;
+    if (fabsf(x) > 0.98f) {
+      inputClipFlag = true;
+      ++inputClipCount;
+    }
 
     if (bypass) {
       // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
       float y = clampf(softClip(x * outputGain * headroomGain, softClipDrive), -1.0f, 1.0f);
-      if (fabsf(y) > 0.98f) outputClipFlag = true;
+      if (fabsf(y) > 0.98f) {
+        outputClipFlag = true;
+        ++outputClipCount;
+      }
       return y;
     }
 
@@ -299,7 +312,10 @@ private:
     y = deemph[ch].process(y);
     y *= outputGain * headroomGain;
     y = clampf(softClip(y, softClipDrive), -1.0f, 1.0f);
-    if (fabsf(y) > 0.98f) outputClipFlag = true;
+    if (fabsf(y) > 0.98f) {
+      outputClipFlag = true;
+      ++outputClipCount;
+    }
     return sanitizef(y);
   }
 };
@@ -316,6 +332,7 @@ void AudioEffectOCXType2DecodeStereo::update(void) {
   audio_block_t *outL = allocate();
   audio_block_t *outR = allocate();
   if (!outL || !outR) {
+    ++allocFailCount;
     if (outL) release(outL);
     if (outR) release(outR);
     release(inL);
@@ -401,7 +418,9 @@ void printHelp() {
   Serial.println(F("Commands:"));
   Serial.println(F("  h  : help"));
   Serial.println(F("  p  : print status"));
+  Serial.println(F("  m  : print telemetry status"));
   Serial.println(F("  x  : clear clip flags"));
+  Serial.println(F("  X  : clear clip flags + runtime counters + usage maxima"));
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
   Serial.println(F("  0  : reload factory preset"));
@@ -443,6 +462,11 @@ void printStatus() {
   Serial.print(F("  ")); Serial.print(calToneHz, 1); Serial.print(F(" Hz @ ")); Serial.print(calToneDb, 1); Serial.println(F(" dBFS"));
   Serial.print(F("Input clip seen: ")); Serial.println(ocx.hasInputClip() ? F("YES") : F("NO"));
   Serial.print(F("Output clip seen: ")); Serial.println(ocx.hasOutputClip() ? F("YES") : F("NO"));
+  Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
+  Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
+  Serial.print(F("Allocate fail count: ")); Serial.println(ocx.getAllocFailCount());
+  Serial.print(F("CPU usage now/max (%): ")); Serial.print(AudioProcessorUsage(), 2); Serial.print(F(" / ")); Serial.println(AudioProcessorUsageMax(), 2);
+  Serial.print(F("AudioMemory now/max blocks: ")); Serial.print(AudioMemoryUsage()); Serial.print(F(" / ")); Serial.println(AudioMemoryUsageMax());
   Serial.println();
 }
 
@@ -452,7 +476,9 @@ void handleSerial() {
     switch (c) {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
+      case 'm': printStatus(); break;
       case 'x': ocx.clearClipFlags(); break;
+      case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case '0': applyFactoryPreset(); break;
@@ -525,5 +551,6 @@ void loop() {
     lastStatusMs = now;
     if (ocx.hasInputClip()) Serial.println(F("[WARN] Input clipped at least once. Lower source level or reduce input trim."));
     if (ocx.hasOutputClip()) Serial.println(F("[WARN] Output clipped at least once. Lower output trim or increase headroom."));
+    if (ocx.getAllocFailCount() > 0) Serial.println(F("[WARN] Audio block allocation failure observed."));
   }
 }
