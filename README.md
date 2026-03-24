@@ -1,45 +1,124 @@
-# OCX Type 2 Teensy build: firmware + test workflow
+# OpenCompanderX / OCX Type 2
 
-## Package contents
+OpenCompanderX is a **decoder-only Type-II compander playback project** for the fixed target hardware below. This repo currently provides an offline-tested firmware/simulator/tooling baseline, not a claim of completed hardware or reference validation:
 
-- `ocx_type2_teensy41_decoder.ino` — real-time firmware for Teensy 4.1 + Teensy Audio Shield Rev D/D2
-- `ocx_type2_wav_sim.py` — offline WAV simulator using the same approximate decoder structure
+- real Teensy 4.1 firmware for analog line-in to analog line/headphone out,
+- a matching offline WAV simulator,
+- an automated offline regression/measurement harness,
+- a reproducible PlatformIO build path in addition to Arduino IDE use,
+- a validation report that clearly separates real execution from hardware-only unknowns.
 
-## What this firmware is and is not
+## Fixed target hardware
 
-This firmware is a practical real-time stereo decoder foundation for your ordered hardware.
-It is intentionally conservative and tunable.
+This project is intentionally scoped to exactly this playback chain:
 
-## Arduino / Teensy upload steps
+- **MCU:** Teensy 4.1
+- **Audio board:** PJRC Teensy Audio Adaptor Board Rev D/D2
+- **Codec:** SGTL5000
+- **Input:** stereo analog line input via the shield's line-in header
+- **Output:** stereo analog line-out via the shield's line-out header
+- **Optional output:** headphone jack on the Audio Adaptor
+- **No required extras:** no display, no encoder, no recorder, no USB-audio side path
+
+## What is practically validated in this repo
+
+### Real executions performed in this environment
+
+- Python analysis stack installed and exercised.
+- PlatformIO/Teensy toolchain installed and used to compile the firmware for **Teensy 4.1**.
+- Offline simulator executed on generated material.
+- Automated regression harness executed across synthetic edge cases.
+- Pytest regression tests executed.
+- These runs demonstrate reproducible offline regression only; they do not replace analog hardware listening and measurement.
+
+### What is **not** fully simulatable offline
+
+The following still require physical hardware and real analog wiring:
+
+- true SGTL5000 analog gain staging,
+- noise floor / hum / grounding behavior,
+- line-in headroom against TEAC W-1200 / FiiO CP13 / We Are Rewind outputs,
+- actual headphone output loudness and clipping margins,
+- subjective listening validation on real encoded program material.
+
+## Repository layout
+
+- `ocx_type2_teensy41_decoder.ino` - firmware for Arduino IDE / Teensyduino
+- `platformio.ini` + `src/main.cpp` - reproducible command-line build path
+- `ocx_type2_profile.json` - synchronized universal default profile for firmware/simulator/docs
+- `ocx_type2_wav_sim.py` - offline decoder simulator for WAV files
+- `ocx_type2_harness.py` - automated synthetic test/measurement harness
+- `tests/test_ocx_type2.py` - regression tests
+- `FINAL_VALIDATION_ocx_type2_teensy.md` - audit/build/validation report
+
+## Universal default profile
+
+There is exactly **one** factory profile. It is intentionally conservative for mixed consumer analog sources and now uses the most conservative input-stage default present in this repo: `lineInLevel(0)`.
+
+Default rationale:
+
+- **SGTL5000 `lineInLevel(0)`:** chosen as the conservative universal default because there is no harder counter-evidence in this repo that a hotter codec input default is safer.
+- **input trim -3 dB:** leaves more margin for portable headphone outputs that can run hotter than line-level.
+- **output trim -1 dB + 1 dB headroom:** reduces avoidable soft-clip engagement during difficult material.
+- **sidechain HP 90 Hz:** reduces low-frequency pumping from rumble and bass-heavy sources.
+- **sidechain shelf +16 dB @ 2.8 kHz:** keeps the detector sensitive to encoded HF energy without pushing hiss excessively.
+- **de-emphasis -6 dB @ 1.85 kHz:** a more moderate universal playback voicing than the earlier darker shelf.
+- **attack 3.5 ms / release 140 ms:** slightly steadier detector ballistics for general playback.
+
+These defaults are meant to reduce first-power-on failure risk. They are **not** a claim of bit-exact equivalence to any proprietary legacy decoder.
+
+## Wiring
+
+- Connect source left/right/ground to the Audio Adaptor **LINE IN** header.
+- Connect amplifier, active speakers, or downstream headphone amp to **LINE OUT**.
+- Optionally monitor with the Audio Adaptor headphone jack.
+- Keep temporary 3.5 mm breakout wiring short to minimize hum and pickup.
+
+## Arduino IDE 2.x flash path
 
 1. Install Arduino IDE 2.x.
-2. Open **File > Preferences**.
-3. Add this URL under **Additional boards manager URLs**:
-
-   `https://www.pjrc.com/teensy/package_teensy_index.json`
-
-4. Open **Boards Manager**, search for **teensy**, install the PJRC package.
-5. Connect the Teensy 4.1 with a **data-capable USB cable**.
-6. Open `ocx_type2_teensy41_decoder.ino` in Arduino IDE.
-7. Select:
+2. Add `https://www.pjrc.com/teensy/package_teensy_index.json` in **Additional boards manager URLs**.
+3. Install the PJRC Teensy package.
+4. Open `ocx_type2_teensy41_decoder.ino`.
+5. Select:
    - **Board:** Teensy 4.1
    - **USB Type:** Serial
    - **CPU Speed:** 600 MHz
    - **Optimize:** Faster or Fastest
-8. Click **Upload**.
-9. If the Teensy Loader appears and waits, press the small **program button** on the Teensy once.
-10. Open **Serial Monitor** at **115200 baud**.
+6. Upload to the board.
+7. Open Serial Monitor at `115200` baud.
 
-## Expected startup behavior
+## Reproducible command-line build path
 
-On boot, the firmware prints a parameter dump and a help menu.
-Default mode is **decode active**, bypass off.
+The repo also supports a real command-line build with PlatformIO.
+
+### Install tools
+
+```bash
+python3 -m pip install numpy scipy soundfile pytest pandas platformio
+# optional only for plotting:
+python3 -m pip install matplotlib
+```
+
+### Build firmware for Teensy 4.1
+
+```bash
+pio run -e teensy41
+```
+
+This build targets:
+
+- board: **Teensy 4.1**
+- USB type: **Serial**
+- CPU speed: **600 MHz**
+- optimization intent: **Fastest**
 
 ## Serial commands
 
 - `h` help
-- `p` print current status
+- `p` print status
 - `x` clear clip flags
+- `B` reset DSP state
 - `b` bypass on/off
 - `0` reload factory preset
 - `i/I` input trim -/+ 0.5 dB
@@ -53,55 +132,103 @@ Default mode is **decode active**, bypass off.
 - `w/W` sidechain shelf freq -/+ 100 Hz
 - `e/E` de-emphasis gain -/+ 1 dB
 - `d/D` de-emphasis freq -/+ 50 Hz
+- `g/G` headroom -/+ 0.5 dB
+- `y/Y` DC block -/+ 1 Hz
 - `t` toggle built-in 1 kHz tone
 - `z/Z` tone level -/+ 1 dB
 
-## Minimal bring-up procedure
-
-1. Power the Teensy by USB.
-2. Wire cassette source to **LINE IN**.
-3. Wire amplifier / headphone amp to **LINE OUT** or use the shield headphone jack.
-4. Boot and open Serial Monitor.
-5. Send `p` and confirm firmware is alive.
-6. Start with decoder active.
-7. If you hear obvious overload or pumping, send:
-   - `i` a few times to reduce input trim
-   - `o` a few times to reduce output trim
-8. If the Serial Monitor warns about clipping, reduce source level before touching the algorithm too much.
-
-## Fast calibration suggestion
-
-Use a steady midband signal first.
-A 1 kHz tone or a stable music passage is good enough for first alignment.
-
-1. Toggle bypass with `b`.
-2. Match perceived loudness between bypass and decode using `i/I` and `o/O`.
-3. Listen for too much brightness or dullness:
-   - more negative de-emphasis = darker / less hiss
-   - less negative de-emphasis = brighter
-4. Listen for breathing/pumping:
-   - too nervous -> increase release or reduce strength
-   - too flat / under-decoded -> increase strength slightly
-
-## Offline simulation option
-
-Install dependencies:
+## Offline WAV simulation
 
 ```bash
-pip install numpy scipy matplotlib
+python3 ocx_type2_wav_sim.py input.wav decoded.wav --plot
 ```
 
-Run example:
+Requirements:
+
+- WAV sample rate should be **44.1 kHz** for direct comparability with the Teensy audio path.
+- Mono inputs are mirrored to stereo automatically for `(N,)` and `(N,1)` paths before decoding; `(N,2)` is preserved as stereo.
+
+## Automated harness / regression measurements
+
+Run the synthetic harness:
 
 ```bash
-python ocx_type2_wav_sim.py input.wav decoded.wav --plot
+python3 ocx_type2_harness.py --out-dir artifacts/harness --write-wavs
 ```
 
-This is the fastest way to compare parameter changes without reflashing hardware.
+This covers at least the following classes:
 
-## Practical advice
+1. silence
+2. 1 kHz sine at multiple levels
+3. logarithmic sweep
+4. pink noise
+5. white noise
+6. bursts / sudden peaks
+7. slow envelope steps
+8. stereo-identical
+9. left/right different
+10. bass-heavy content
+11. treble-heavy content
+12. clipped input
+13. too-quiet input
+14. too-hot input
+15. DC / rumble contamination
+16. synthetic music-like material
 
-- Keep analog wiring short.
-- Use a real USB data cable, not a charge-only cable.
-- Do not chase the algorithm before basic levels are sane.
-- Tweak in this order: source level, input trim, output trim, tonal balance, then dynamics.
+Generated metrics include:
+
+- input/output peak
+- RMS
+- crest factor
+- channel deviation
+- estimated gain-curve mean/std
+- null residual
+- MSE / MAE / max abs error
+- correlation
+- frequency-response delta
+- transient delta
+- optional reference comparison metrics if a reference output directory is supplied
+
+## Pytest regression checks
+
+```bash
+pytest -q
+```
+
+## Test workflow before real hardware listening
+
+1. Build the firmware with `pio run -e teensy41`.
+2. Run `pytest -q`.
+3. Run `python3 ocx_type2_harness.py --out-dir artifacts/harness`.
+4. Review the generated `artifacts/harness/*.json`/`*.csv` metrics locally (these are generated artifacts and must not be committed).
+5. Flash hardware.
+6. Verify bypass first.
+7. Start with conservative source volume.
+8. Only then compare decoded playback on real encoded material.
+
+## Limits and honesty notes
+
+- No proprietary plugin/reference archive was present in this working tree, so no black-box reference measurement was possible here.
+- The harness can compare against a separate reference-output directory if such outputs are legally available later.
+- Without real hardware, claims are limited to compile correctness, numerical stability, offline behavior, and configuration consistency.
+- The current project is reproducibly buildable and regression-testable offline, but that is still not the same as full hardware or reference validation, and it is **not proven bit-exact** to any proprietary decoder.
+
+## Merge policy (mandatory)
+
+Before any merge, all of the following must be true:
+
+```bash
+git fetch origin && git rebase origin/main
+git diff --check
+python -m py_compile ocx_type2_wav_sim.py ocx_type2_harness.py
+pytest -q
+pio run -e teensy41
+rg '<<<<<<<|=======|>>>>>>>'
+```
+
+Additional hard rules:
+
+- No merge when conflict markers are present.
+- No merge when any check above is red.
+- No generated harness artifacts committed (`artifacts/harness/*.json`, `*.csv`, `*.png`, `*.md`).
+- No direct "Upload files" overwrite of existing files without first rebasing to current `origin/main`.

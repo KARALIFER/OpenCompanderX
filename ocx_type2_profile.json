@@ -1,0 +1,35 @@
+{
+  "profile_name": "ocx_type2_universal_v2",
+  "sample_rate_hz": 44100,
+  "audio_memory_blocks": 64,
+  "codec": {
+    "input": "linein",
+    "line_in_level": 0,
+    "line_out_level": 29,
+    "headphone_source": "dac",
+    "headphone_volume": 0.45
+  },
+  "decoder": {
+    "input_trim_db": -3.0,
+    "output_trim_db": -1.0,
+    "strength": 0.76,
+    "reference_db": -18.0,
+    "max_boost_db": 9.0,
+    "max_cut_db": 24.0,
+    "attack_ms": 3.5,
+    "release_ms": 140.0,
+    "sidechain_hp_hz": 90.0,
+    "sidechain_shelf_hz": 2800.0,
+    "sidechain_shelf_db": 16.0,
+    "deemph_hz": 1850.0,
+    "deemph_db": -6.0,
+    "soft_clip_drive": 1.08,
+    "dc_block_hz": 12.0,
+    "headroom_db": 1.0
+  },
+  "tone": {
+    "enabled": false,
+    "frequency_hz": 1000.0,
+    "level_dbfs": -18.0
+  }
+}
