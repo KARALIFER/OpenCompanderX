@@ -15,6 +15,7 @@ Aktuell im Repo verifizierbar:
 - Harness trennt jetzt explizit:
   - **referenzlose Stabilitäts-/Plausibilitätsbewertung** (Clipping, Kanalabweichung, Ballistik-/Pump-Indikatoren, spektrale Verfärbung, Transientenverlust, Soft-Clip-Abhängigkeit)
   - **optionale Referenzbewertung** (nur wenn echte Referenzdateien vorhanden sind).
+- Referenzlose Score-Logik bewertet zusätzlich die **Pegel-Tracking-Plausibilität** über Gain-vs-Input-Slope/R² und bestraft zu flaches oder unplausibles Tracking.
 - Tuning verwendet eine **zweistufige Suche**: schnelle Grobselektion (z. B. 4 kHz) plus finales Re-Ranking bei **44.1 kHz**.
 - Simulator kann zusätzlich einen **RMS-näheren Detectorpfad** (`detector_mode=rms`) gegen den bisherigen energy-nahen Pfad vergleichen.
 
@@ -139,6 +140,8 @@ Empfohlener realer Hardware-Ablauf:
 3. Definierte Testquelle abspielen (mehrere Minuten).
 4. Mit `m` zyklisch kompakten Status lesen, mit `p` Vollstatus prüfen.
 5. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
+
+Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` neben den Clip-/Alloc-Zählern.
 
 ## Testkassetten-Methodik
 

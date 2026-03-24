@@ -122,6 +122,8 @@ def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is
         "soft_clip_dependency": 0.0,
         "gain_curve_mean_db": -1.0,
         "input_level_span_db": 18.0,
+        "gain_vs_input_slope": -0.2,
+        "gain_vs_input_r2": 0.8,
         "mse_vs_reference": None,
         "freq_response_delta_db_vs_reference": None,
         "transient_delta_vs_reference": None,
@@ -171,6 +173,7 @@ def test_tuning_rerank_uses_44100_final_stage():
         harness_module.build_cases = original_build_cases
 
     assert run["final_fs"] == 44_100
+    assert run["selection_basis"] == "final_stage_only"
     assert len(run["coarse_ranking"]) > 0
     assert len(run["final_ranking"]) == 1
     assert run["best"] == run["final_ranking"][0]
