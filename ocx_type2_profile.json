@@ -4,7 +4,7 @@
   "audio_memory_blocks": 64,
   "codec": {
     "input": "linein",
-
+    "line_in_level": 0,
     "line_out_level": 29,
     "headphone_source": "dac",
     "headphone_volume": 0.45
@@ -13,7 +13,7 @@
     "input_trim_db": -3.0,
     "output_trim_db": -1.0,
     "strength": 0.76,
-    "reference_db": -18.0,
+    "reference_db": -16.0,
     "max_boost_db": 9.0,
     "max_cut_db": 24.0,
     "attack_ms": 3.5,

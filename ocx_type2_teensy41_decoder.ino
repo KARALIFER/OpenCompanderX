@@ -18,12 +18,13 @@ namespace OCXProfile {
 static constexpr float kFs = AUDIO_SAMPLE_RATE_EXACT;
 static constexpr int kAudioMemoryBlocks = 64;
 
+static constexpr int kLineInLevel = 0;
 static constexpr int kLineOutLevel = 29;
 static constexpr float kHeadphoneVolume = 0.45f;
 static constexpr float kInputTrimDb = -3.0f;
 static constexpr float kOutputTrimDb = -1.0f;
 static constexpr float kStrength = 0.76f;
-static constexpr float kReferenceDb = -18.0f;
+static constexpr float kReferenceDb = -16.0f;
 static constexpr float kMaxBoostDb = 9.0f;
 static constexpr float kMaxCutDb = 24.0f;
 static constexpr float kAttackMs = 3.5f;
@@ -194,9 +195,14 @@ public:
 
   bool hasInputClip() const          { return inputClipFlag; }
   bool hasOutputClip() const         { return outputClipFlag; }
-  void clearClipFlags()              { inputClipFlag = false; outputClipFlag = false; }
+  uint32_t getInputClipCount() const { return inputClipCount; }
+  uint32_t getOutputClipCount() const { return outputClipCount; }
+  bool hasAllocationFailure() const  { return allocationFailFlag; }
+  uint32_t getAllocationFailCount() const { return allocationFailCount; }
+  void clearClipFlags()              { inputClipFlag = false; outputClipFlag = false; inputClipCount = 0; outputClipCount = 0; }
+  void clearRuntimeTelemetry()       { clearClipFlags(); allocationFailFlag = false; allocationFailCount = 0; }
   void resetState() {
-    clearClipFlags();
+    clearRuntimeTelemetry();
     for (int ch = 0; ch < 2; ++ch) {
       scHP[ch].reset();
       scShelf[ch].reset();
@@ -211,6 +217,10 @@ private:
   bool  bypass = false;
   bool  inputClipFlag = false;
   bool  outputClipFlag = false;
+  bool  allocationFailFlag = false;
+  uint32_t inputClipCount = 0;
+  uint32_t outputClipCount = 0;
+  uint32_t allocationFailCount = 0;
 
   float inputTrimDb = 0.0f;
   float outputTrimDb = 0.0f;
@@ -220,7 +230,7 @@ private:
   float headroomGain = dbToLin(-1.0f);
 
   float strength = 0.76f;
-  float referenceDb = -18.0f;
+  float referenceDb = -16.0f;
   float maxBoostDb = 9.0f;
   float maxCutDb = 24.0f;
 
@@ -276,11 +286,18 @@ private:
 
   inline float processOne(int ch, float x) {
     x = dcBlock[ch].process(sanitizef(x) * inputGain);
-    if (fabsf(x) > 0.98f) inputClipFlag = true;
+    if (fabsf(x) > 0.98f) {
+      inputClipFlag = true;
+      ++inputClipCount;
+    }
 
     if (bypass) {
+      // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
       float y = clampf(softClip(x * outputGain * headroomGain, softClipDrive), -1.0f, 1.0f);
-      if (fabsf(y) > 0.98f) outputClipFlag = true;
+      if (fabsf(y) > 0.98f) {
+        outputClipFlag = true;
+        ++outputClipCount;
+      }
       return y;
     }
 
@@ -297,8 +314,17 @@ private:
     y = deemph[ch].process(y);
     y *= outputGain * headroomGain;
     y = clampf(softClip(y, softClipDrive), -1.0f, 1.0f);
-    if (fabsf(y) > 0.98f) outputClipFlag = true;
+    if (fabsf(y) > 0.98f) {
+      outputClipFlag = true;
+      ++outputClipCount;
+    }
     return sanitizef(y);
+  }
+
+public:
+  inline void noteAllocationFailure() {
+    allocationFailFlag = true;
+    ++allocationFailCount;
   }
 };
 
@@ -314,6 +340,7 @@ void AudioEffectOCXType2DecodeStereo::update(void) {
   audio_block_t *outL = allocate();
   audio_block_t *outR = allocate();
   if (!outL || !outR) {
+    noteAllocationFailure();
     if (outL) release(outL);
     if (outR) release(outR);
     release(inL);
@@ -400,6 +427,7 @@ void printHelp() {
   Serial.println(F("  h  : help"));
   Serial.println(F("  p  : print status"));
   Serial.println(F("  x  : clear clip flags"));
+  Serial.println(F("  m  : clear telemetry maxima/counters"));
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
   Serial.println(F("  0  : reload factory preset"));
@@ -423,6 +451,22 @@ void printHelp() {
 
 void printStatus() {
   Serial.println();
+  Serial.println(F("==== AUDIO ENGINE TELEMETRY ===="));
+  Serial.print(F("Audio CPU current/max: "));
+  Serial.print(AudioProcessorUsage(), 2);
+  Serial.print(F("% / "));
+  Serial.print(AudioProcessorUsageMax(), 2);
+  Serial.println(F("%"));
+  Serial.print(F("AudioMemory current/max: "));
+  Serial.print(AudioMemoryUsage());
+  Serial.print(F(" / "));
+  Serial.println(AudioMemoryUsageMax());
+  Serial.print(F("Block allocation failure seen: "));
+  Serial.println(ocx.hasAllocationFailure() ? F("YES") : F("NO"));
+  Serial.print(F("Block allocation failure count: "));
+  Serial.println(ocx.getAllocationFailCount());
+  Serial.println();
+
   Serial.println(F("==== OCX TYPE 2 STATUS ===="));
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.print(F("Input trim: ")); Serial.print(ocx.getInputTrimDb(), 2); Serial.println(F(" dB"));
@@ -440,8 +484,16 @@ void printStatus() {
   Serial.print(F("Tone: ")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
   Serial.print(F("  ")); Serial.print(calToneHz, 1); Serial.print(F(" Hz @ ")); Serial.print(calToneDb, 1); Serial.println(F(" dBFS"));
   Serial.print(F("Input clip seen: ")); Serial.println(ocx.hasInputClip() ? F("YES") : F("NO"));
+  Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
   Serial.print(F("Output clip seen: ")); Serial.println(ocx.hasOutputClip() ? F("YES") : F("NO"));
+  Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
   Serial.println();
+}
+
+void clearSystemTelemetry() {
+  AudioProcessorUsageMaxReset();
+  AudioMemoryUsageMaxReset();
+  ocx.clearRuntimeTelemetry();
 }
 
 void handleSerial() {
@@ -451,6 +503,7 @@ void handleSerial() {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
       case 'x': ocx.clearClipFlags(); break;
+      case 'm': clearSystemTelemetry(); break;
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case '0': applyFactoryPreset(); break;
@@ -508,6 +561,7 @@ void setup() {
 
   applyFactoryPreset();
   updateTone();
+  clearSystemTelemetry();
 
   Serial.println();
   Serial.println(F("OCX Type 2 decoder firmware ready (single universal playback profile)."));

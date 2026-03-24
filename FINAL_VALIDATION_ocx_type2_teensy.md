@@ -1,251 +1,98 @@
-# OCX Type 2 validation and audit report
+# OpenCompanderX – OCX Type 2 Validation Report
 
-## 1. Scope and honesty boundary
+## 1) Ehrlichkeitsgrenze
 
-This report separates four very different things:
+Dieser Stand liefert **Build-/Offline-Messbarkeit**, aber keine Referenz- oder Bitexact-Behauptung.
+Es lagen keine legalen proprietären Referenzausgänge im Repo vor.
 
-1. **real tool installation**,
-2. **real firmware build validation**,
-3. **real offline DSP execution and regression measurements**,
-4. **hardware-only unknowns that cannot be proven without a physical Teensy 4.1 + SGTL5000 setup**.
+## 2) Reparatur- und Stabilitätsstatus
 
-No bit-exact claim is made.
-No proprietary reference decoder was available inside this repo for black-box comparison.
+Repariert/erweitert:
 
-## 2. Repo audit baseline
+1. Profil/Firmware-Sync (inkl. `codec.line_in_level`).
+2. Vollständiger Simulator mit numerischen Guards und CLI-Overrides.
+3. Harness als Abstimmungs-Harness inkl. zusätzlicher Stressfälle und Score-Funktion.
+4. Tests erweitert (inkl. 44.1-kHz-Pfad und Sync-Checks).
+5. Firmware-Telemetrie für reale CPU/RAM/Allocate/Clip-Stabilitätsprüfung.
 
-### What was already good
+## 3) Firmware-Stabilität (offline + instrumentiert)
 
-- Firmware structure was broadly plausible for a stereo decoder-only playback chain.
-- DSP work stayed inside a custom `AudioStream`, which is appropriate for Teensy real-time audio.
-- No heap allocation occurred inside `update()`.
-- Serial I/O stayed outside the audio callback.
-- SGTL5000 setup calls were syntactically valid for the Teensy Audio library.
-- The algorithm already used dual-mono detection, sidechain filtering, envelope tracking, expansion, de-emphasis, and soft limiting.
+### Realtime-Sicherheit
 
-### What was risky or incomplete
+- Kein Heap-/malloc-Muster im Audio-Sample-Loop.
+- Keine `Serial`-Ausgabe in `update()`.
+- Allocate-Fehler in `update()` werden gezählt/markiert (statt still zu passieren).
 
-- The simulator had a real runtime bug in plotting (`n`, `plot_audio`, and `plt` handling were incomplete).
-- Firmware and simulator defaults were duplicated, making silent drift likely.
-- The previous defaults were somewhat aggressive/dark for a one-profile universal analog target.
-- No automated regression harness existed for broad synthetic edge cases.
-- No formal pytest regression layer existed.
-- Documentation mixed practical guidance with implied validation that had not been reproducibly automated in-repo.
-- There was no reproducible command-line firmware build configuration in the repo itself.
+### Telemetrie (für echte Hardwareläufe)
 
-### What needed changing before first hardware tests
+Statusausgabe zeigt:
 
-1. Add a real reproducible build path.
-2. Synchronize defaults across firmware and simulator.
-3. Add regression coverage for silence, hot inputs, DC/rumble, stereo mismatch, and clipped material.
-4. Improve numerical safety around DC, NaN/Inf sanitation, and avoidable output overdrive.
-5. Re-document the exact limits of offline validation.
+- Audio-CPU current/max (`AudioProcessorUsage`, `AudioProcessorUsageMax`)
+- AudioMemory current/max (`AudioMemoryUsage`, `AudioMemoryUsageMax`)
+- Allocate-Failure-Flag + Counter
+- Input/Output-Clip-Flags + Counter
 
-### What can wait until real hardware is present
+### RAM-Hinweis
 
-- final gain staging against the three named source devices,
-- subjective listening refinement on actual encoded tapes,
-- any optional future black-box comparison against legal reference outputs,
-- final line-out/headphone loudness recommendations.
+`AudioMemory(64)` bleibt als konservativer Startwert; endgültige Reserve sollte auf echter Hardware über Max-Telemetrie verifiziert werden.
 
-## 3. Installed tools and dependencies
+## 4) Offline-Abstimmungsmethodik
 
-### Firmware/build
+Ziel: stabiler Universal-Decoder, **nicht** Referenzklon.
 
-- PlatformIO installed successfully.
-- Teensy platform packages were downloaded and installed successfully through PlatformIO.
-- Teensy 4.1 firmware build completed successfully.
+Workflow:
 
-### Python / analysis
+A) Baseline messen
+B) begrenzte Kandidaten-Sweeps
+C) Score-Vergleich
+D) plausibelsten Universal-Kandidaten auswählen
 
-Installed and used:
+Score bestraft u. a.:
 
-- Python 3
-- numpy
-- scipy
-- soundfile
-- pytest
-- pandas
+- häufiges Output-Clipping
+- hohe Gain-Schwankung
+- Kanalabweichung
+- starke spektrale/Transienten-Abweichung
+- Instabilität in Burst-/Envelope-/Rapid-Swing-Fällen
 
-### Standard inspection tools available
+## 5) Durchgeführte Sweep-Ergebnisse (dieser Lauf)
 
-- `file`
-- `strings`
-- `objdump`
-- `nm`
-- `git`
+Ausgeführt mit:
 
-### Arduino CLI status
+```bash
+python ocx_type2_harness.py --out-dir artifacts/harness --analysis-fs 8000 --tune --tune-mode refine --max-candidates 6 --top-k 3
+```
 
-- `arduino-cli` was present in the environment.
-- `arduino-cli core update-index` failed due network behavior inside that specific Go-based fetch path.
-- Because the task required real practical validation rather than a theoretical note, PlatformIO was used as an equivalent reproducible Teensy build environment and succeeded.
+Ergebnis:
 
-## 4. Firmware build validation
+- Baseline-Score: `249.8292`
+- Bester Kandidat (aus 6 Kandidaten): Score `230.5766`
+- Dominanter Unterschied des besten Kandidaten: `reference_db = -16.0` (statt `-18.0`)
 
-### Real build target
+Zusätzlicher 44.1-kHz-Subsetvergleich (kritische Fälle) bestätigte Richtung:
 
-Validated in practice with:
+- Baseline: `204.6092`
+- `reference_db=-16.0`: `188.6646` (niedriger = besser im verwendeten Stabilitäts-Score)
 
-- **Board:** Teensy 4.1
-- **USB Type:** Serial
-- **CPU Speed:** 600 MHz
-- **Optimization intent:** Fastest-style build flags via PlatformIO
+## 6) Empfohlenes Universalprofil (offline-basiert)
 
-### Build result
+Empfohlen für diesen Stand:
 
-The firmware built successfully into `firmware.elf` and `firmware.hex`.
+- `reference_db = -16.0`
+- übrige Kernparameter konservativ belassen
+- `line_in_level = 0`, `line_out_level = 29`
 
-This confirms, at compile/link level:
+Begründung: im dokumentierten Offline-Scoring stabiler als Baseline, ohne aggressive Zusatzänderungen.
 
-- Teensy 4.1 compatibility,
-- includes resolve correctly,
-- Audio library objects resolve correctly,
-- SGTL5000 API calls used in the sketch exist in the installed library set,
-- no hidden type/API mismatch blocked the target build.
+## 7) Offen / nur auf echter Hardware prüfbar
 
-## 5. Firmware changes made
+- finale Analog-Headroom-/Noise-Grenzen
+- Quellgeräte-spezifisches Feintuning
+- subjektive Hörqualität auf realem Material
 
-### Robustness improvements
+## 8) Schlussbewertung
 
-- Added a synchronized profile file for shared defaults.
-
-- Increased `AudioMemory` from 48 to 64 blocks for safer runtime margin.
-- Added a one-pole DC blocker before detector/audio gain application.
-- Added float sanitation in DSP paths to reduce NaN/Inf propagation risk.
-- Added explicit headroom gain in addition to soft clipping.
-- Added a DSP-state reset command and preset reset path that clears detector/filter history.
-
-### Universal-profile tuning changes
-
-The default profile was moved to a more conservative single-profile setting:
-
-
-- input trim: `-3 dB`
-- output trim: `-1 dB`
-- strength: `0.76`
-- attack: `3.5 ms`
-- release: `140 ms`
-- sidechain HP: `90 Hz`
-- sidechain shelf: `+16 dB @ 2.8 kHz`
-- de-emphasis: `-6 dB @ 1.85 kHz`
-- headroom: `1 dB`
-
-### Why these changes were technically justified
-
-
-- Slight output attenuation and dedicated headroom reduce unnecessary limiter engagement.
-- Higher sidechain HP reduces rumble/bass pumping.
-- Milder de-emphasis is a better universal starting point than a much darker shelf.
-- Resettable detector/filter state makes A/B tests and recovery from abrupt source changes more deterministic.
-
-## 6. Offline simulator and harness work
-
-### Simulator improvements
-
-- Reworked the simulator to load defaults from `ocx_type2_profile.json`.
-
-- Kept the same broad topology as firmware: dual-mono detector, sidechain filters, envelope detector, gain law, de-emphasis, soft clip.
-
-### New automated harness
-
-A new offline harness was added and executed across these categories:
-
-1. silence
-2. 1 kHz sine at multiple levels
-3. logarithmic sweep
-4. pink noise
-5. white noise
-6. bursts
-7. slow envelope steps
-8. stereo-identical
-9. stereo-different
-10. bass-heavy
-11. treble-heavy
-12. clipped input
-13. too-quiet input
-14. too-hot input
-15. DC/rumble contamination
-16. synthetic music-like material
-
-### Metrics produced
-
-Per case, the harness now records:
-
-- input peak / RMS / crest factor
-- output peak / RMS / crest factor
-- channel deviation
-- gain-curve mean/std
-- null residual
-- MSE / MAE / max abs error
-- correlation
-- frequency-response delta
-- transient delta
-- reference-comparison fields when a legal reference directory is supplied later
-
-## 7. Reference / proprietary plugin status
-
-- No proprietary plugin/archive/reference output set was present in this repo.
-- Therefore, **no black-box reference run was actually performed in this environment**.
-- The new harness supports later comparison against externally supplied legal reference WAV outputs, but that did not occur in this run.
-
-## 8. What was really executed
-
-The following were run for real:
-
-- Python dependency installation
-- PlatformIO installation
-- Teensy 4.1 firmware build
-- `pytest`
-- offline harness run
-- offline single-file simulator path
-
-## 9. What could only be simulated offline
-
-Only the following were validated offline:
-
-- DSP numerical behavior
-- clipping containment
-- DC/rumble rejection behavior
-- stereo consistency behavior
-- broad response to quiet/hot/clipped synthetic material
-- consistency between documented default profile and simulator/firmware defaults
-
-## 10. What could not be verified without physical hardware
-
-Not verifiable here:
-
-- true analog line-input overload point on the exact shield/board stack,
-- headphone-output margin and noise on the actual board,
-- source-specific compatibility with TEAC W-1200 / FiiO CP13 / We Are Rewind,
-- real encoded-tape playback quality,
-- hum susceptibility from temporary cable wiring,
-- whether the current universal profile is already "final" subjectively.
-
-## 11. Open risks
-
-1. Portable sources may still exceed comfortable shield headroom depending on their volume knob position.
-2. Real encoded program material may justify small input-trim or de-emphasis adjustments.
-3. A proprietary reference may later reveal measurable voicing or detector-ballistic differences.
-4. Offline synthetic tests cannot fully predict analog hiss, crosstalk, ground loops, or source impedance interactions.
-
-## 12. Final assessment
-
-### Practical status
-
-
-
-Reason:
-
-- the firmware now builds reproducibly for Teensy 4.1,
-- the DSP path is more robust and better bounded numerically,
-- the repo now contains a real offline validation harness instead of only ad-hoc inspection,
-- the project is better prepared for first hardware listening tests.
-
-### Reference closeness
-
-**Not currently quantifiable against a proprietary reference**, because no legal reference output set was available in this run.
-
-### Bit-exact claim
-
-**Not proven and not claimed.**
+- Build stabil: **ja**
+- Offline-Stabilität verbessert und messbar: **ja**
+- Universalprofil plausibel (offline): **ja, mit dokumentierter Unsicherheit**
+- Referenznähe: **unbelegt ohne legale Referenzmessung**
