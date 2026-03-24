@@ -101,6 +101,7 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
         "correlation": correlation(inp_a, out_a),
         "freq_response_delta_db": spectral_delta_db(inp_a, out_a),
         "transient_delta": transient_delta(inp_a, out_a),
+        "channel_deviation_rms": float(np.sqrt(np.mean(np.square(out_a[:, 0] - out_a[:, 1])))),
     }
 
     if ref_a is not None:
@@ -129,6 +130,19 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
             }
         )
     return metrics
+
+
+def score_candidate(metrics: list[dict[str, float | bool | None]]) -> float:
+    score = 1000.0
+    for row in metrics:
+        clip_penalty = 40.0 * int(bool(row["output_clip_l"])) + 40.0 * int(bool(row["output_clip_r"]))
+        stereo_penalty = 50.0 * min(float(row["channel_deviation_rms"]), 1.0)
+        spectral_penalty = 1.8 * float(row["freq_response_delta_db"])
+        transient_penalty = 8.0 * float(row["transient_delta"])
+        gain_std_penalty = 2.5 * float(row["gain_curve_std_db"])
+        corr_penalty = 35.0 * max(0.0, 0.95 - float(row["correlation"]))
+        score -= clip_penalty + stereo_penalty + spectral_penalty + transient_penalty + gain_std_penalty + corr_penalty
+    return float(score)
 
 
 def tone(fs: int, seconds: float, freq: float, level_db: float, phase: float = 0.0) -> np.ndarray:
@@ -207,6 +221,45 @@ def music_like(fs: int, seconds: float) -> np.ndarray:
     ) * (0.6 + 0.4 * np.sin(2.0 * np.pi * 0.7 * t) ** 2)
 
 
+def hf_burst_train(fs: int, seconds: float) -> np.ndarray:
+    n = int(fs * seconds)
+    out = np.zeros(n)
+    carrier = tone(fs, 0.04, 9000.0, -10.0)
+    step = int(fs * 0.08)
+    for i in range(0, max(n - len(carrier), 1), step):
+        out[i : i + len(carrier)] += carrier[: max(0, min(len(carrier), n - i))]
+    return np.clip(out, -1.0, 1.0)
+
+
+def bass_plus_hf(fs: int, seconds: float) -> np.ndarray:
+    return np.clip(0.75 * bass_heavy(fs, seconds) + 0.65 * treble_heavy(fs, seconds), -1.0, 1.0)
+
+
+def transient_train(fs: int, seconds: float) -> np.ndarray:
+    n = int(fs * seconds)
+    out = np.zeros(n)
+    pulse = np.concatenate([np.linspace(0.0, 1.0, 8), np.linspace(1.0, -0.8, 10), np.zeros(12)])
+    for i in range(0, n, int(fs * 0.05)):
+        take = min(len(pulse), n - i)
+        out[i : i + take] = pulse[:take]
+    return np.clip(out * 0.8, -1.0, 1.0)
+
+
+def fast_level_switches(fs: int, seconds: float) -> np.ndarray:
+    n = int(fs * seconds)
+    out = np.zeros(n)
+    seg = int(fs * 0.1)
+    levels = [-30.0, -12.0, -24.0, -6.0, -18.0]
+    idx = 0
+    for i in range(0, n, seg):
+        lvl = levels[idx % len(levels)]
+        piece = tone(fs, seg / fs, 1200.0, lvl)
+        take = min(len(piece), n - i)
+        out[i : i + take] = piece[:take]
+        idx += 1
+    return out
+
+
 def build_cases(fs: int) -> dict[str, np.ndarray]:
     rng = np.random.default_rng(1234)
     silence = np.zeros(int(fs * 3.0))
@@ -231,7 +284,21 @@ def build_cases(fs: int) -> dict[str, np.ndarray]:
         "too_hot": ensure_stereo(np.clip(tone(fs, 3.0, 1000.0, -1.0) * 1.2, -1.0, 1.0)),
         "dc_rumble": ensure_stereo(rumble(fs, 4.0)),
         "music_like": ensure_stereo(music_like(fs, 4.0)),
+        "hf_burst_train": ensure_stereo(hf_burst_train(fs, 3.0)),
+        "bass_plus_hf": ensure_stereo(bass_plus_hf(fs, 4.0)),
+        "transient_train": ensure_stereo(transient_train(fs, 3.0)),
+        "fast_level_switches": ensure_stereo(fast_level_switches(fs, 3.0)),
     }
+
+
+def parse_override_pairs(values: list[str]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for item in values:
+        if "=" not in item:
+            raise ValueError(f"Override must use key=value, got '{item}'")
+        k, v = item.split("=", 1)
+        out[k.strip()] = float(v.strip())
+    return out
 
 
 def main() -> None:
@@ -240,12 +307,16 @@ def main() -> None:
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--reference-dir", type=Path)
     ap.add_argument("--write-wavs", action="store_true")
+    ap.add_argument("--override", action="append", default=[], help="Decoder override key=value (repeatable)")
+    ap.add_argument("--tune", action="store_true", help="Run a compact grid search and report the best candidate.")
+    ap.add_argument("--tune-fs", type=int, default=4000, help="Sample rate for tuning search workload (default: 4000)")
     args = ap.parse_args()
 
     profile = json.loads(args.profile.read_text())
     fs = int(profile["sample_rate_hz"])
     cases = build_cases(fs)
-    params = Params.from_profile(args.profile)
+    user_overrides = parse_override_pairs(args.override)
+    params = Params.from_profile(args.profile, **user_overrides)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
@@ -277,12 +348,63 @@ def main() -> None:
             write_audio(args.out_dir / f"{name}_output.wav", fs, out)
 
     (args.out_dir / "metrics.json").write_text(json.dumps(results, indent=2))
+    summary = {
+        "score": score_candidate(results),
+        "cases": len(results),
+        "overrides": user_overrides,
+    }
+    (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     try:
         import pandas as pd
 
         pd.DataFrame(results).to_csv(args.out_dir / "metrics.csv", index=False)
     except ImportError:
         pass
+
+    if args.tune:
+        tune_fs = int(max(1000, args.tune_fs))
+        tune_cases = build_cases(tune_fs)
+        base = json.loads(args.profile.read_text())["decoder"]
+        grid = {
+            "strength": [base["strength"], min(1.25, base["strength"] + 0.06)],
+            "attack_ms": [base["attack_ms"], base["attack_ms"] + 1.0],
+            "release_ms": [base["release_ms"], base["release_ms"] + 30.0],
+            "deemph_db": [base["deemph_db"], base["deemph_db"] + 1.0],
+            "sidechain_shelf_db": [base["sidechain_shelf_db"], base["sidechain_shelf_db"] + 2.0],
+            "headroom_db": [base["headroom_db"], min(6.0, base["headroom_db"] + 0.5)],
+        }
+        best: tuple[float, dict[str, float]] | None = None
+        for strength in grid["strength"]:
+            for attack_ms in grid["attack_ms"]:
+                for release_ms in grid["release_ms"]:
+                    for deemph_db in grid["deemph_db"]:
+                        for sidechain_shelf_db in grid["sidechain_shelf_db"]:
+                            for headroom_db in grid["headroom_db"]:
+                                cand = {
+                                    "strength": strength,
+                                    "attack_ms": attack_ms,
+                                    "release_ms": release_ms,
+                                    "deemph_db": deemph_db,
+                                    "sidechain_shelf_db": sidechain_shelf_db,
+                                    "headroom_db": headroom_db,
+                                }
+                                d = Decoder(tune_fs, Params.from_profile(args.profile, **cand))
+                                rows = []
+                                for name, inp in tune_cases.items():
+                                    out = d.process(inp)
+                                    rows.append(
+                                        {
+                                            "case": name,
+                                            **compare(inp, out),
+                                            "output_clip_l": bool(d.output_clip[0]),
+                                            "output_clip_r": bool(d.output_clip[1]),
+                                        }
+                                    )
+                                s = score_candidate(rows)
+                                if best is None or s > best[0]:
+                                    best = (s, cand)
+        if best:
+            (args.out_dir / "tuning_best.json").write_text(json.dumps({"score": best[0], "params": best[1]}, indent=2))
 
 
 if __name__ == "__main__":
