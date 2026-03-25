@@ -208,8 +208,8 @@ public:
       scShelf[ch].reset();
       deemph[ch].reset();
       dcBlock[ch].reset();
-      env2[ch] = 1.0e-9f;
     }
+    linkedEnv2 = 1.0e-9f;
   }
 
 private:
@@ -243,7 +243,7 @@ private:
   float releaseMs = 140.0f;
   float attackCoeff = 0.0f;
   float releaseCoeff = 0.0f;
-  float env2[2] = {1.0e-9f, 1.0e-9f};
+  float linkedEnv2 = 1.0e-9f;
 
   float deemphHz = 1850.0f;
   float deemphDb = -6.0f;
@@ -314,11 +314,9 @@ private:
     const float scL = scShelf[0].process(scHP[0].process(xL));
     const float scR = scShelf[1].process(scHP[1].process(xR));
     const float linkedP = fmaxf(scL * scL, scR * scR); // Stereo link avoids image wander on unbalanced channels.
-    for (int ch = 0; ch < 2; ++ch) {
-      const float coeff = (linkedP > env2[ch]) ? attackCoeff : releaseCoeff;
-      env2[ch] = sanitizef(coeff * env2[ch] + (1.0f - coeff) * linkedP);
-    }
-    const float env = sqrtf(0.5f * (env2[0] + env2[1]) + 1.0e-12f);
+    const float coeff = (linkedP > linkedEnv2) ? attackCoeff : releaseCoeff;
+    linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedP);
+    const float env = sqrtf(linkedEnv2 + 1.0e-12f);
     float gainDb = (linToDb(env) - referenceDb) * strength;
     gainDb = clampf(gainDb, -maxCutDb, maxBoostDb);
     const float gainLin = dbToLin(gainDb);
@@ -448,6 +446,7 @@ void printHelp() {
   Serial.println(F("  y/Y: DC block -/+ 1 Hz"));
   Serial.println(F("  t  : toggle 400 Hz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
+  Serial.println(F("  Detector: stereo-linked peak detector (shared gain on L/R)."));
   Serial.println(F("  NOTE: calibration tone is mixed post-decoder into the output path."));
   Serial.println();
 }
@@ -497,10 +496,12 @@ void printStatus() {
   Serial.println();
   Serial.println(F("==== OCX TYPE 2 STATUS ===="));
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
+  Serial.println(F("Bypass mode keeps output protection (headroom + soft clip), not a hard relay bypass."));
   Serial.print(F("Input trim: ")); Serial.print(ocx.getInputTrimDb(), 2); Serial.println(F(" dB"));
   Serial.print(F("Output trim: ")); Serial.print(ocx.getOutputTrimDb(), 2); Serial.println(F(" dB"));
   Serial.print(F("Strength: ")); Serial.println(ocx.getStrength(), 3);
   Serial.print(F("Reference: ")); Serial.print(ocx.getReferenceDb(), 2); Serial.println(F(" dB"));
+  Serial.println(F("Detector: stereo-linked peak (max of L/R sidechain power)."));
   Serial.print(F("Attack: ")); Serial.print(ocx.getAttackMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Release: ")); Serial.print(ocx.getReleaseMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Sidechain HP: ")); Serial.print(ocx.getSidechainHpHz(), 1); Serial.println(F(" Hz"));

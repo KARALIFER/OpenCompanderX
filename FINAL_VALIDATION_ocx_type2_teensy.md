@@ -15,6 +15,8 @@ Die Methodik trennt strikt:
 - Tuning läuft zweistufig: **coarse low-rate** + **final 44.1-kHz Re-Ranking**.
 - Referenzpfad ist im Harness sauber getrennt modelliert.
 - Firmware-Telemetrie ist kompakt (`m`) und als Hardware-Testablauf interpretierbar dokumentiert.
+- Firmware-Detector arbeitet stereo-gekoppelt (maximale L/R-Sidechain-Power -> gemeinsamer Gain), um Stereo-Image-Wander bei unbalanciertem Material zu vermeiden.
+- Output-Schutz ist zentralisiert (`finalizeOutput`) und gilt konsistent sowohl im Decode-Pfad als auch im Bypass-Pfad.
 - Simulator bietet zusätzlich einen RMS-näheren Detectorpfad für methodische A/B-Vergleiche gegen den bisherigen energy-nahen Pfad.
 - Universalprofil bleibt konservativ (`ocx_type2_universal_v2`), ohne Über-Claims.
 
@@ -132,6 +134,7 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
   separat zu validieren und **nicht** automatisch aus dem Kalibrierpegel abzuleiten.
 - Routing-Hinweis: Der Firmware-Kalibrierton wird **post-decoder** in den Ausgangspfad gemischt;
   er durchläuft nicht die Decoderregelung selbst.
+- Bypass-Hinweis: `bypass` bleibt ein geschützter Monitorpfad mit aktivem Headroom/Softclip (kein transparenter Relay-Bypass).
 
 ## Samplerate-Einordnung
 

@@ -11,6 +11,8 @@ Dieses Repository enthält einen robusten **Type-II Compander-Decoder** für ein
 Aktuell im Repo verifizierbar:
 
 - Firmware kompiliert mit PlatformIO für `teensy41`.
+- Firmware-Decoderpfad ist explizit stereo-gekoppelt (gemeinsamer Detector aus max(L/R)-Sidechain-Power, gemeinsamer Gain), um Stereo-Image-Wander bei asymmetrischem Material zu reduzieren.
+- Output-Finalisierung ist zentralisiert (`finalizeOutput`): Output-Trim, Headroom, Softclip, Clip-Zählung laufen konsistent über Decode- und Bypass-Pfad.
 - Offline-Simulator läuft für WAV-Dateien.
 - Harness trennt jetzt explizit:
   - **referenzlose Stabilitäts-/Plausibilitätsbewertung** (Clipping, Kanalabweichung, Ballistik-/Pump-Indikatoren, spektrale Verfärbung, Transientenverlust, Soft-Clip-Abhängigkeit)
@@ -73,6 +75,7 @@ ohne dass daraus automatisch andere Profilparameter abgeleitet werden.
 - `decoder.reference_db` ist ein **interner Modellparameter** der Decoder-Regelung.
 - In der Firmware wird der Kalibrierton **post-decoder** in den Ausgangsmix eingespeist
   (Ausgangs-/Workflow-Kalibrierung, kein Decoder-Eingangstestton).
+- `bypass` ist bewusst **kein transparenter Hard-Relay-Bypass**: Headroom/Softclip bleiben aktiv, damit der analoge Ausgangsschutz auch im Bypass-Betrieb erhalten bleibt.
 
 Aktueller Hardware-Bezugspunkt für das hier dokumentierte Nutzer-Setup
 (Mixtape Nerd + TEAC W-1200 + RTM-Band):
