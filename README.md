@@ -192,6 +192,7 @@ Firmware-Kommandos:
 - `m` = kompakter Telemetrie-Status (inkl. `bypass=ON/OFF`, letztem `gDb/envDb`, Tonstatus + L/R-Modus)
 - `n` = Signaldiagnose-Snapshot (Input/Output Peak+RMS+Mean, Gain/Env, Decode-Aktivität, In/Out-Delta, L/R-Balance)
 - `N` = Signaldiagnose-Counter gezielt zurücksetzen
+- `v` = nur neue Clip-Ereignisse seit der letzten `v`/`m`/`p`-Abfrage ausgeben
 - `X` = Clip-/Runtime-Counter, Signaldiagnose und Usage-Max zurücksetzen
 - `k` = Testton-Kanalmodus zyklisch umschalten (`BOTH -> LEFT -> RIGHT`)
 - `0` = Factory-Preset neu laden
@@ -203,6 +204,8 @@ Telemetrie-Bedeutung:
 - `allocFailCount` -> Audio-Block-Allokation fehlgeschlagen (muss 0 bleiben)
 - `inputClipCount` -> Frontend/Decoder-Eingang übersteuert
 - `outputClipCount` -> Ausgangspfad übersteuert
+- `inClipNew` / `outClipNew` -> neue Clipping-Ereignisse seit letzter Statusabfrage (kein endloses Wiederholen alter Clips)
+- `gain clamp hits` / `near-limit` im Snapshot -> wie oft `maxCutDb`/`maxBoostDb` hart oder fast erreicht wurden
 
 Empfohlener realer Hardware-Ablauf:
 
@@ -215,7 +218,17 @@ Empfohlener realer Hardware-Ablauf:
 6. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
 
 Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` neben den Clip-/Alloc-Zählern sowie klar sichtbarem `bypass=ON/OFF`.
+Zusätzlich zeigt `m` jetzt `inClipNew/outClipNew`, damit neue Übersteuerungen seit dem letzten Report sofort sichtbar werden.
 Der Snapshot `n` ist als Live-Diagnosefenster gedacht: `N` drücken, Material abspielen, `n` lesen und auf Basis von In/Out-Delta, Gain-Min/Max und Decode-Aktivität entscheiden.
+Er enthält jetzt zusätzlich praxisnahe Cassette-Indikatoren mit sehr niedriger CPU-Last:
+- RMS- und Peak-L/R-Balance in/out
+- L/R-Differenzmittel und normierte L/R-Korrelation (Hinweis auf Kanal-/Phasenauffälligkeiten)
+- einfacher Sidechain-HF/LF-Proxy (`high-vs-low`) als grober Hinweis auf höhenarme/höhenreiche Reize für den Detector
+- Aktivitätsklassifikation (`LOW`/`MODERATE`/`HIGH`) plus `Cassette quick hints` (nur als Diagnosehilfe, kein Normbeweis)
+- Clamp-Auswertung (`cut/boost hits`, `near-limit`, kompakte Interpretation), um z. B. Fälle wie `minGainDb=-24 dB` besser einzuordnen
+
+Arduino-`.ino`-Kompatibilität:
+- `toneChannelModeLabel(...)` ist absichtlich mit `uint8_t`-Signatur gehalten, damit der Arduino-IDE/`.ino`-Prototype-Preprocessor keinen Enum-Reihenfolgefehler auslösen kann.
 
 ## Testkassetten-Methodik
 

@@ -331,7 +331,9 @@ def test_help_text_mentions_signal_diag_and_tone_channel_mode_commands():
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
     assert "print signal diagnostics snapshot" in ino
     assert "reset signal diagnostics counters" in ino
+    assert "print NEW clip counts since last v/m/p call" in ino
     assert "cycle tone channel mode BOTH -> LEFT -> RIGHT" in ino
+    assert "Snapshot includes clamp-hit/near-limit stats" in ino
 
 
 def test_firmware_documents_post_decoder_calibration_tone_routing():
@@ -343,9 +345,21 @@ def test_firmware_documents_post_decoder_calibration_tone_routing():
 def test_firmware_compact_and_snapshot_output_include_bypass_and_signal_metrics():
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
     assert "bypass=" in ino
+    assert "inClipNew=" in ino
     assert "OCX SIGNAL DIAGNOSTICS" in ino
     assert "Gain dB last/min/max/avg" in ino
     assert "Snapshot bypass now" in ino
+    assert "L/R correlation in/out" in ino
+    assert "Sidechain spectral proxy (high-vs-low)" in ino
+    assert "Gain clamp hits cut/boost" in ino
+    assert "Clamp interpretation:" in ino
+    assert "Cassette quick hints" in ino
+
+
+def test_tone_channel_label_helper_is_ino_preprocessor_safe():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "enum ToneChannelMode : uint8_t" in ino
+    assert "toneChannelModeLabel(uint8_t mode)" in ino
 
 
 def test_firmware_status_mentions_tone_channel_mode():
