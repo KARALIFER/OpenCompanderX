@@ -5,7 +5,6 @@
   - Decoder-only playback path for analog line input to analog line/headphone output
   - One conservative universal playback profile for TEAC W-1200 line-out and portable headphone sources
   - Real-time-safe sample loop: no dynamic allocation in update(), no Serial I/O in update(), no heap DSP objects
-  - Honest limit: compile/build can be validated offline, but full SGTL5000 analog behavior still requires physical hardware
 */
 
 #include <Arduino.h>
