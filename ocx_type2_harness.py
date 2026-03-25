@@ -7,6 +7,7 @@ import argparse
 import itertools
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 
@@ -53,6 +54,26 @@ def spectral_delta_db(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(mag_b - mag_a))))
 
 
+def spectral_band_delta_db(a: np.ndarray, b: np.ndarray, fs: int, low_hz: float, high_hz: float) -> float:
+    a_mono = np.mean(a, axis=1)
+    b_mono = np.mean(b, axis=1)
+    n = min(len(a_mono), len(b_mono))
+    if n == 0:
+        return 0.0
+    a_mono = a_mono[:n]
+    b_mono = b_mono[:n]
+    win = np.hanning(n)
+    A = np.fft.rfft(a_mono * win)
+    B = np.fft.rfft(b_mono * win)
+    freqs = np.fft.rfftfreq(n, 1.0 / fs)
+    band = (freqs >= low_hz) & (freqs < high_hz)
+    if not np.any(band):
+        return 0.0
+    mag_a = 20.0 * np.log10(np.maximum(np.abs(A[band]), 1.0e-12))
+    mag_b = 20.0 * np.log10(np.maximum(np.abs(B[band]), 1.0e-12))
+    return float(np.sqrt(np.mean(np.square(mag_b - mag_a))))
+
+
 def transient_delta(a: np.ndarray, b: np.ndarray) -> float:
     n = min(len(a), len(b))
     if n == 0:
@@ -62,6 +83,16 @@ def transient_delta(a: np.ndarray, b: np.ndarray) -> float:
     da = np.diff(a, axis=0, prepend=a[:1])
     db = np.diff(b, axis=0, prepend=b[:1])
     return float(np.max(np.abs(db - da)))
+
+
+def overshoot_undershoot_delta(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0, 0.0
+    ref = a[:n]
+    out = b[:n]
+    err = out - ref
+    return float(np.max(err)), float(abs(np.min(err)))
 
 
 def gain_curve_stats(inp: np.ndarray, out: np.ndarray) -> dict[str, float]:
@@ -134,7 +165,13 @@ def align_lengths(*arrays: np.ndarray | None) -> list[np.ndarray | None]:
     return aligned
 
 
-def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | int | None]:
+def compare(
+    inp: np.ndarray,
+    out: np.ndarray,
+    fs: int,
+    ref: np.ndarray | None = None,
+    source_target: np.ndarray | None = None,
+) -> dict[str, float | int | None]:
     inp = ensure_stereo(inp)
     out = ensure_stereo(out)
     inp_a, out_a, ref_a = align_lengths(inp, out, ref)
@@ -156,7 +193,12 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
         "max_abs_error": float(np.max(np.abs(residual))),
         "correlation": correlation(inp_a, out_a),
         "freq_response_delta_db": spectral_delta_db(inp_a, out_a),
+        "freq_delta_low_db": spectral_band_delta_db(inp_a, out_a, fs, 30.0, 250.0),
+        "freq_delta_mid_db": spectral_band_delta_db(inp_a, out_a, fs, 250.0, 4000.0),
+        "freq_delta_high_db": spectral_band_delta_db(inp_a, out_a, fs, 4000.0, 16000.0),
         "transient_delta": transient_delta(inp_a, out_a),
+        "overshoot_delta": overshoot_undershoot_delta(inp_a, out_a)[0],
+        "undershoot_delta": overshoot_undershoot_delta(inp_a, out_a)[1],
         "channel_deviation_rms": float(np.sqrt(np.mean(np.square(out_a[:, 0] - out_a[:, 1])))),
         "soft_clip_dependency": softclip_dependency(inp_a, out_a),
         "reference_samples_used": int(len(inp_a)) if ref_a is not None else 0,
@@ -186,6 +228,28 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
                 "null_residual_rms_vs_reference": None,
                 "freq_response_delta_db_vs_reference": None,
                 "transient_delta_vs_reference": None,
+            }
+        )
+    if source_target is not None:
+        src_a, out_s = align_lengths(source_target, out_a)
+        assert src_a is not None
+        assert out_s is not None
+        src_diff = out_s - src_a
+        metrics.update(
+            {
+                "mse_vs_source": float(np.mean(np.square(src_diff))),
+                "mae_vs_source": float(np.mean(np.abs(src_diff))),
+                "correlation_vs_source": correlation(out_s, src_a),
+                "freq_response_delta_db_vs_source": spectral_delta_db(out_s, src_a),
+            }
+        )
+    else:
+        metrics.update(
+            {
+                "mse_vs_source": None,
+                "mae_vs_source": None,
+                "correlation_vs_source": None,
+                "freq_response_delta_db_vs_source": None,
             }
         )
     return metrics
@@ -235,8 +299,13 @@ def evaluate_scores(metrics: list[dict[str, float | bool | int | None]]) -> dict
     means = [float(row["gain_curve_mean_db"]) for row in metrics]
     level_spans = [float(row["input_level_span_db"]) for row in metrics]
 
+    cassette_primary_rows = [row for row in metrics if str(row.get("case_group", "")).startswith("cassette")]
     for row in metrics:
         plausibility_score -= _case_plausibility_penalty(row)
+        if str(row.get("case_group", "")) in {"cassette_tone_matrix", "cassette_reference"}:
+            plausibility_score -= 1.5 * max(0.0, float(row["freq_delta_mid_db"]) - 3.5)
+            plausibility_score -= 3.0 * max(0.0, float(row["overshoot_delta"]) - 0.15)
+            plausibility_score -= 3.0 * max(0.0, float(row["undershoot_delta"]) - 0.15)
         if row["mse_vs_reference"] is not None:
             reference_cases += 1
             reference_score += 100.0
@@ -253,11 +322,24 @@ def evaluate_scores(metrics: list[dict[str, float | bool | int | None]]) -> dict
         plausibility_score -= insufficient_level_coverage
 
     total = plausibility_score + reference_score
+    matrix_rows = [row for row in metrics if row.get("matrix_frequency_hz") is not None and row.get("matrix_level_db") is not None]
+    tone_matrix_coverage = float(len(matrix_rows)) / float(len(CASSETTE_PRIMARY_FREQS_HZ) * len(CASSETTE_PRIMARY_LEVELS_DB))
+    if matrix_rows:
+        by_freq: dict[float, list[float]] = {}
+        for row in matrix_rows:
+            by_freq.setdefault(float(row["matrix_frequency_hz"]), []).append(float(row["gain_curve_mean_db"]))
+        freq_spreads = [max(vals) - min(vals) for vals in by_freq.values() if vals]
+        matrix_gain_spread_db = float(np.mean(freq_spreads)) if freq_spreads else 0.0
+    else:
+        matrix_gain_spread_db = 0.0
     return {
         "score_total": float(total),
         "score_plausibility": float(plausibility_score),
         "score_reference": float(reference_score),
         "reference_case_count": int(reference_cases),
+        "cassette_primary_case_count": int(len(cassette_primary_rows)),
+        "tone_matrix_coverage": tone_matrix_coverage,
+        "tone_matrix_gain_spread_db": matrix_gain_spread_db,
     }
 
 
@@ -380,35 +462,98 @@ def fast_level_switches(fs: int, seconds: float) -> np.ndarray:
     return out
 
 
-def build_cases(fs: int) -> dict[str, np.ndarray]:
+CASSETTE_PRIMARY_FREQS_HZ = (400.0, 1000.0, 3150.0, 10000.0)
+CASSETTE_PRIMARY_LEVELS_DB = (-30.0, -24.0, -18.0, -12.0, -6.0)
+
+
+def _synthetic_case_specs(fs: int) -> dict[str, dict[str, object]]:
     rng = np.random.default_rng(1234)
     silence = np.zeros(int(fs * 3.0))
     base = tone(fs, 3.0, 1000.0, -12.0)
     mismatch = np.column_stack([tone(fs, 3.0, 1000.0, -12.0), tone(fs, 3.0, 1300.0, -18.0)])
-    return {
-        "silence": ensure_stereo(silence),
-        "sine_-24db": ensure_stereo(tone(fs, 3.0, 1000.0, -24.0)),
-        "sine_-12db": ensure_stereo(base),
-        "sine_-6db": ensure_stereo(tone(fs, 3.0, 1000.0, -6.0)),
-        "log_sweep": ensure_stereo(log_sweep(fs, 5.0, 20.0, 20000.0, -18.0)),
-        "pink_noise": ensure_stereo(colored_noise(fs, 4.0, "pink", -18.0, rng)),
-        "white_noise": ensure_stereo(colored_noise(fs, 4.0, "white", -20.0, rng)),
-        "bursts": ensure_stereo(bursts(fs, 3.0, -8.0)),
-        "envelope_steps": ensure_stereo(envelope_steps(fs, 3.0)),
-        "stereo_identical": ensure_stereo(tone(fs, 3.0, 500.0, -16.0) + tone(fs, 3.0, 3000.0, -22.0)),
-        "stereo_different": mismatch,
-        "bass_heavy": ensure_stereo(bass_heavy(fs, 4.0)),
-        "treble_heavy": ensure_stereo(treble_heavy(fs, 4.0)),
-        "clipped_input": ensure_stereo(clipped_source(fs, 3.0)),
-        "too_quiet": ensure_stereo(tone(fs, 3.0, 1000.0, -42.0)),
-        "too_hot": ensure_stereo(np.clip(tone(fs, 3.0, 1000.0, -1.0) * 1.2, -1.0, 1.0)),
-        "dc_rumble": ensure_stereo(rumble(fs, 4.0)),
-        "music_like": ensure_stereo(music_like(fs, 4.0)),
-        "hf_burst_train": ensure_stereo(hf_burst_train(fs, 3.0)),
-        "bass_plus_hf": ensure_stereo(bass_plus_hf(fs, 4.0)),
-        "transient_train": ensure_stereo(transient_train(fs, 3.0)),
-        "fast_level_switches": ensure_stereo(fast_level_switches(fs, 3.0)),
+    specs: dict[str, dict[str, object]] = {
+        "silence": {"input": ensure_stereo(silence), "group": "sanity"},
+        "sine_-24db": {"input": ensure_stereo(tone(fs, 3.0, 1000.0, -24.0)), "group": "legacy_tone"},
+        "sine_-12db": {"input": ensure_stereo(base), "group": "legacy_tone"},
+        "sine_-6db": {"input": ensure_stereo(tone(fs, 3.0, 1000.0, -6.0)), "group": "legacy_tone"},
+        "log_sweep": {"input": ensure_stereo(log_sweep(fs, 5.0, 20.0, 20000.0, -18.0)), "group": "broadband"},
+        "pink_noise": {"input": ensure_stereo(colored_noise(fs, 4.0, "pink", -18.0, rng)), "group": "broadband"},
+        "white_noise": {"input": ensure_stereo(colored_noise(fs, 4.0, "white", -20.0, rng)), "group": "broadband"},
+        "bursts": {"input": ensure_stereo(bursts(fs, 3.0, -8.0)), "group": "dynamic"},
+        "envelope_steps": {"input": ensure_stereo(envelope_steps(fs, 3.0)), "group": "dynamic"},
+        "stereo_identical": {"input": ensure_stereo(tone(fs, 3.0, 500.0, -16.0) + tone(fs, 3.0, 3000.0, -22.0)), "group": "sanity"},
+        "stereo_different": {"input": mismatch, "group": "sanity"},
+        "bass_heavy": {"input": ensure_stereo(bass_heavy(fs, 4.0)), "group": "music_like"},
+        "treble_heavy": {"input": ensure_stereo(treble_heavy(fs, 4.0)), "group": "music_like"},
+        "clipped_input": {"input": ensure_stereo(clipped_source(fs, 3.0)), "group": "edge"},
+        "too_quiet": {"input": ensure_stereo(tone(fs, 3.0, 1000.0, -42.0)), "group": "edge"},
+        "too_hot": {"input": ensure_stereo(np.clip(tone(fs, 3.0, 1000.0, -1.0) * 1.2, -1.0, 1.0)), "group": "edge"},
+        "dc_rumble": {"input": ensure_stereo(rumble(fs, 4.0)), "group": "edge"},
+        "music_like": {"input": ensure_stereo(music_like(fs, 4.0)), "group": "music_like"},
+        "hf_burst_train": {"input": ensure_stereo(hf_burst_train(fs, 3.0)), "group": "dynamic"},
+        "bass_plus_hf": {"input": ensure_stereo(bass_plus_hf(fs, 4.0)), "group": "music_like"},
+        "transient_train": {"input": ensure_stereo(transient_train(fs, 3.0)), "group": "dynamic"},
+        "fast_level_switches": {"input": ensure_stereo(fast_level_switches(fs, 3.0)), "group": "dynamic"},
     }
+    for freq in CASSETTE_PRIMARY_FREQS_HZ:
+        for level in CASSETTE_PRIMARY_LEVELS_DB:
+            name = f"cassette_tone_{int(freq)}hz_{int(level)}db"
+            specs[name] = {
+                "input": ensure_stereo(tone(fs, 2.5, freq, level)),
+                "group": "cassette_tone_matrix",
+                "frequency_hz": float(freq),
+                "level_db": float(level),
+            }
+    specs["cassette_two_tone_400_3150"] = {
+        "input": ensure_stereo(tone(fs, 3.0, 400.0, -14.0) + tone(fs, 3.0, 3150.0, -16.0)),
+        "group": "music_like",
+    }
+    specs["cassette_multi_tone_bass_hf"] = {
+        "input": ensure_stereo(tone(fs, 3.5, 80.0, -13.0) + tone(fs, 3.5, 1000.0, -20.0) + tone(fs, 3.5, 10000.0, -18.0)),
+        "group": "music_like",
+    }
+    return specs
+
+
+def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dict[str, object]]:
+    specs: dict[str, dict[str, object]] = {}
+    cassette_root = reference_dir / "type2_cassette"
+    search_root = cassette_root if cassette_root.exists() else reference_dir
+    for encoded in sorted(search_root.rglob("*_encoded.wav")):
+        base = re.sub(r"_encoded$", "", encoded.stem)
+        source = encoded.with_name(f"{base}_source.wav")
+        if not source.exists():
+            continue
+        ref_decode = encoded.with_name(f"{base}_reference_decode.wav")
+        enc_fs, enc_audio = read_audio(encoded)
+        src_fs, src_audio = read_audio(source)
+        if enc_fs != fs or src_fs != fs:
+            continue
+        case_name = f"ref_{base}"
+        spec: dict[str, object] = {
+            "input": ensure_stereo(enc_audio),
+            "source_target": ensure_stereo(src_audio),
+            "group": "cassette_reference",
+            "reference_layout": "pair_encoded_source",
+            "reference_case_base": base,
+        }
+        if ref_decode.exists():
+            ref_fs, ref_audio = read_audio(ref_decode)
+            if ref_fs == fs:
+                spec["reference_decode"] = ensure_stereo(ref_audio)
+        specs[case_name] = spec
+    return specs
+
+
+def build_case_specs(fs: int, reference_dir: Path | None = None) -> dict[str, dict[str, object]]:
+    specs = _synthetic_case_specs(fs)
+    if reference_dir is not None:
+        specs.update(discover_reference_case_specs(reference_dir, fs))
+    return specs
+
+
+def build_cases(fs: int) -> dict[str, np.ndarray]:
+    return {k: v["input"] for k, v in build_case_specs(fs).items()}
 
 
 
@@ -453,28 +598,44 @@ def load_reference(reference_dir: Path | None, case_name: str, fs: int) -> np.nd
 def evaluate_candidate(
     profile_path: Path,
     fs: int,
-    cases: dict[str, np.ndarray],
+    cases: dict[str, np.ndarray] | dict[str, dict[str, object]],
     overrides: dict[str, float] | None = None,
     reference_dir: Path | None = None,
 ) -> list[dict[str, float | bool | int | None | str]]:
     overrides = overrides or {}
     params = Params.from_profile(profile_path, **overrides)
+    case_specs: dict[str, dict[str, object]]
+    first_value = next(iter(cases.values())) if cases else None
+    if isinstance(first_value, dict):
+        case_specs = cases  # type: ignore[assignment]
+    else:
+        case_specs = {name: {"input": audio, "group": "legacy"} for name, audio in cases.items()}  # type: ignore[union-attr]
     rows: list[dict[str, float | bool | int | None | str]] = []
-    for name, inp in cases.items():
+    for name, spec in case_specs.items():
+        inp = ensure_stereo(np.asarray(spec["input"]))
         decoder = Decoder(fs, params)
         out = decoder.process(inp)
-        ref = load_reference(reference_dir, name, fs)
+        embedded_ref = spec.get("reference_decode")
+        ref = ensure_stereo(np.asarray(embedded_ref)) if embedded_ref is not None else load_reference(reference_dir, name, fs)
+        source_target = spec.get("source_target")
+        source = ensure_stereo(np.asarray(source_target)) if source_target is not None else None
         row: dict[str, float | bool | int | None | str] = {
             "case": name,
+            "case_group": str(spec.get("group", "legacy")),
             **{f"input_{k}": v for k, v in summarize_signal("input", inp).items() if k != "name"},
             **{f"output_{k}": v for k, v in summarize_signal("output", out).items() if k != "name"},
-            **compare(inp, out, ref),
+            **compare(inp, out, fs, ref, source),
             "input_clip_l": bool(decoder.input_clip[0]),
             "input_clip_r": bool(decoder.input_clip[1]),
             "output_clip_l": bool(decoder.output_clip[0]),
             "output_clip_r": bool(decoder.output_clip[1]),
             "reference_available": ref is not None,
+            "source_available": source is not None,
         }
+        if "frequency_hz" in spec:
+            row["matrix_frequency_hz"] = float(spec["frequency_hz"])  # type: ignore[assignment]
+        if "level_db" in spec:
+            row["matrix_level_db"] = float(spec["level_db"])  # type: ignore[assignment]
         rows.append(row)
     return rows
 
@@ -565,14 +726,15 @@ def main() -> None:
 
     profile = json.loads(args.profile.read_text())
     fs = int(profile["sample_rate_hz"])
-    cases = build_cases(fs)
+    case_specs = build_case_specs(fs, args.reference_dir)
     user_overrides = parse_override_pairs(args.override)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    results = evaluate_candidate(args.profile, fs, cases, user_overrides, args.reference_dir)
+    results = evaluate_candidate(args.profile, fs, case_specs, user_overrides, args.reference_dir)
     if args.write_wavs:
         params = Params.from_profile(args.profile, **user_overrides)
-        for name, inp in cases.items():
+        for name, spec in case_specs.items():
+            inp = ensure_stereo(np.asarray(spec["input"]))
             decoder = Decoder(fs, params)
             out = decoder.process(inp)
             write_audio(args.out_dir / f"{name}_input.wav", fs, inp)
@@ -585,6 +747,8 @@ def main() -> None:
         "cases": len(results),
         "overrides": user_overrides,
         "reference_cases": int(sum(1 for row in results if bool(row["reference_available"]))),
+        "source_cases": int(sum(1 for row in results if bool(row["source_available"]))),
+        "cassette_primary_cases": int(sum(1 for row in results if str(row.get("case_group", "")).startswith("cassette"))),
     }
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     try:

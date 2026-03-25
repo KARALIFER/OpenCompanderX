@@ -18,6 +18,7 @@ Aktuell im Repo verifizierbar:
 - Referenzlose Score-Logik bewertet zusätzlich die **Pegel-Tracking-Plausibilität** über Gain-vs-Input-Slope/R² und bestraft zu flaches oder unplausibles Tracking.
 - Tuning verwendet eine **zweistufige Suche**: schnelle Grobselektion (z. B. 4 kHz) plus finales Re-Ranking bei **44.1 kHz**.
 - Simulator kann zusätzlich einen **RMS-näheren Detectorpfad** (`detector_mode=rms`) gegen den bisherigen energy-nahen Pfad vergleichen.
+- Harness enthält jetzt einen expliziten **cassette-primary** Prüfpfad mit Pflicht-Frequenz-/Pegel-Matrix, musiknahen Verbundfällen und breitbandigen Fällen.
 
 Nicht offline beweisbar (nur echte Hardware):
 
@@ -104,6 +105,18 @@ Für Black-Box-Referenzvergleich gilt:
 - Ohne Referenz wird **keine** Referenznähe behauptet.
 - Optionale Hilfen wie Play Trim, Azimuth-Korrektur, Gap-Loss-Kompensation oder EQ-Konvertierung (IEC 120 µs <-> 70 µs) gelten als Referenzpfad-Hilfen, nicht als implizite OCX-Kernlogik.
 
+### Cassette-primary Referenzlayout (empfohlen)
+
+Der Harness akzeptiert weiterhin das Legacy-Format `--reference-dir/<case>.wav`.
+Für Type-II-Cassette-Primärtests ist jetzt zusätzlich ein Paar-Layout vorgesehen:
+
+- `refs/type2_cassette/<name>_encoded.wav` (Pflicht, dbx Type II Cassette Aufnahme)
+- `refs/type2_cassette/<name>_source.wav` (Pflicht, Original/Quellmaterial)
+- `refs/type2_cassette/<name>_reference_decode.wav` (optional, externe Referenz-Decode-Kette)
+
+Nur Fälle mit mindestens `*_encoded.wav` + `*_source.wav` werden als `cassette_reference` in die Bewertung aufgenommen.
+Diese Struktur verbessert die Praxisnähe, beweist aber allein noch keine historische Standardgleichheit.
+
 ## Lokale Checks
 
 ```bash
@@ -167,11 +180,16 @@ Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK
 - **Kassette A (nicht compandiert, Grundreferenz):** 400 Hz (hier: -9.8 dBFS als
   Setup-spezifischer 0-VU-Bezug), 1 kHz, 10 kHz, 3.15 kHz für Pegel/Kanalgleichheit/HF-/Azimuth/Speed.
 - **Kassette B (Type-II encodiert, Decoder-Tuning):** Mehrpegel-1-kHz, Bursts, Envelope-Steps, Pink/White Noise, Sweep, Bass+HF, Musik.
+- **Cassette-primary Harness (offline):**
+  - Einzelton-/Mehrpegel-Matrix: **400 Hz, 1 kHz, 3.15 kHz, 10 kHz** über mehrere Pegel.
+  - Mehrfrequenz-/musiknahe Verbundfälle: Two-Tone, Bass+HF, Burst-/Transient-Train, Fast-Level-Switches, `music_like`.
+  - Breitbandfälle: Pink/White-Noise, Log-Sweep.
 - Immer genau ein Type-II-Encoding-Pfad verwenden (keine Doppel-Encodierung).
 
 ## Claims
 
 Dieses Projekt macht **keine** Bit-Exact-/Originalgleich-/Referenzgleich-Behauptung ohne harten Messbeleg.
+Auch der erweiterte cassette-primary Harness erhöht primär die praktische Validierungstiefe; er ersetzt keine vollständig dokumentierte dbx-Type-II-Normkonformitätsmessung.
 
 ## Ehrlicher Kompatibilitätsstatus (dbx Type II Cassette)
 
