@@ -283,41 +283,48 @@ private:
     for (int ch = 0; ch < 2; ++ch) dcBlock[ch].design(OCXProfile::kFs, dcBlockHz);
   }
 
-  inline float processOne(int ch, float x) {
-    x = dcBlock[ch].process(sanitizef(x) * inputGain);
-    if (fabsf(x) > 0.98f) {
+  inline float finalizeOutput(float y) {
+    y = clampf(softClip(y * outputGain * headroomGain, softClipDrive), -1.0f, 1.0f);
+    if (fabsf(y) > 0.98f) {
+      outputClipFlag = true;
+      ++outputClipCount;
+    }
+    return sanitizef(y);
+  }
+
+  inline void processStereo(float inL, float inR, float &outL, float &outR) {
+    float xL = dcBlock[0].process(sanitizef(inL) * inputGain);
+    float xR = dcBlock[1].process(sanitizef(inR) * inputGain);
+    if (fabsf(xL) > 0.98f) {
+      inputClipFlag = true;
+      ++inputClipCount;
+    }
+    if (fabsf(xR) > 0.98f) {
       inputClipFlag = true;
       ++inputClipCount;
     }
 
     if (bypass) {
       // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
-      float y = clampf(softClip(x * outputGain * headroomGain, softClipDrive), -1.0f, 1.0f);
-      if (fabsf(y) > 0.98f) {
-        outputClipFlag = true;
-        ++outputClipCount;
-      }
-      return y;
+      outL = finalizeOutput(xL);
+      outR = finalizeOutput(xR);
+      return;
     }
 
-    float sc = scHP[ch].process(x);
-    sc = scShelf[ch].process(sc);
-    const float p = sc * sc;
-    const float coeff = (p > env2[ch]) ? attackCoeff : releaseCoeff;
-    env2[ch] = sanitizef(coeff * env2[ch] + (1.0f - coeff) * p);
-    const float env = sqrtf(env2[ch] + 1.0e-12f);
+    const float scL = scShelf[0].process(scHP[0].process(xL));
+    const float scR = scShelf[1].process(scHP[1].process(xR));
+    const float linkedP = fmaxf(scL * scL, scR * scR); // Stereo link avoids image wander on unbalanced channels.
+    for (int ch = 0; ch < 2; ++ch) {
+      const float coeff = (linkedP > env2[ch]) ? attackCoeff : releaseCoeff;
+      env2[ch] = sanitizef(coeff * env2[ch] + (1.0f - coeff) * linkedP);
+    }
+    const float env = sqrtf(0.5f * (env2[0] + env2[1]) + 1.0e-12f);
     float gainDb = (linToDb(env) - referenceDb) * strength;
     gainDb = clampf(gainDb, -maxCutDb, maxBoostDb);
+    const float gainLin = dbToLin(gainDb);
 
-    float y = x * dbToLin(gainDb);
-    y = deemph[ch].process(y);
-    y *= outputGain * headroomGain;
-    y = clampf(softClip(y, softClipDrive), -1.0f, 1.0f);
-    if (fabsf(y) > 0.98f) {
-      outputClipFlag = true;
-      ++outputClipCount;
-    }
-    return sanitizef(y);
+    outL = finalizeOutput(deemph[0].process(xL * gainLin));
+    outR = finalizeOutput(deemph[1].process(xR * gainLin));
   }
 };
 
@@ -344,8 +351,9 @@ void AudioEffectOCXType2DecodeStereo::update(void) {
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; ++i) {
     const float xl = (float)inL->data[i] / 32768.0f;
     const float xr = (float)inR->data[i] / 32768.0f;
-    const float yl = processOne(0, xl);
-    const float yr = processOne(1, xr);
+    float yl = 0.0f;
+    float yr = 0.0f;
+    processStereo(xl, xr, yl, yr);
 
     int32_t sl = (int32_t)(yl * 32767.0f);
     int32_t sr = (int32_t)(yr * 32767.0f);
@@ -440,6 +448,7 @@ void printHelp() {
   Serial.println(F("  y/Y: DC block -/+ 1 Hz"));
   Serial.println(F("  t  : toggle 400 Hz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
+  Serial.println(F("  NOTE: calibration tone is mixed post-decoder into the output path."));
   Serial.println();
 }
 
@@ -502,6 +511,7 @@ void printStatus() {
   Serial.print(F("Soft clip drive: ")); Serial.println(ocx.getSoftClipDrive(), 2);
   Serial.print(F("Tone: ")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
   Serial.print(F("  ")); Serial.print(calToneHz, 1); Serial.print(F(" Hz @ ")); Serial.print(calToneDb, 1); Serial.println(F(" dBFS"));
+  Serial.println(F("Tone routing: post-decoder output injection (for deck/workflow level calibration)."));
   Serial.print(F("Input clip seen: ")); Serial.println(ocx.hasInputClip() ? F("YES") : F("NO"));
   Serial.print(F("Output clip seen: ")); Serial.println(ocx.hasOutputClip() ? F("YES") : F("NO"));
   Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
@@ -579,6 +589,9 @@ void setup() {
 
   Serial.println();
   Serial.println(F("OCX Type 2 decoder firmware ready (single universal playback profile)."));
+  Serial.print(F("Runtime sample-rate (AUDIO_SAMPLE_RATE_EXACT): "));
+  Serial.println((double)AUDIO_SAMPLE_RATE_EXACT, 4);
+  Serial.println(F("Profile/sample-method baseline remains 44100 Hz nominal for simulator/harness comparability."));
   Serial.println(F("Offline build validated; final analog validation still requires physical Teensy 4.1 + SGTL5000 hardware."));
   printStatus();
   printHelp();
