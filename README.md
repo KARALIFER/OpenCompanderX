@@ -107,15 +107,22 @@ Für Black-Box-Referenzvergleich gilt:
 
 ### Cassette-primary Referenzlayout (empfohlen)
 
-Der Harness akzeptiert weiterhin das Legacy-Format `--reference-dir/<case>.wav`.
-Für Type-II-Cassette-Primärtests ist jetzt zusätzlich ein Paar-Layout vorgesehen:
+Klare Trennung:
 
-- `refs/type2_cassette/<name>_encoded.wav` (Pflicht, dbx Type II Cassette Aufnahme)
-- `refs/type2_cassette/<name>_source.wav` (Pflicht, Original/Quellmaterial)
-- `refs/type2_cassette/<name>_reference_decode.wav` (optional, externe Referenz-Decode-Kette)
+- `refs/type2_cassette_real/` = echte, legal nutzbare Referenzen mit belegter Herkunft/Lizenz
+- `refs/type2_cassette_synth/` = synthetische/approximative Referenzen (reproduzierbar generiert)
+
+Pro Fall:
+
+- `<name>_encoded.wav` (Pflicht)
+- `<name>_source.wav` (Pflicht)
+- `<name>_reference_decode.wav` (optional)
+- `<name>.json` (Pflicht-Metadaten: Herkunft, Lizenz, Trust-Level, source_type)
 
 Nur Fälle mit mindestens `*_encoded.wav` + `*_source.wav` werden als `cassette_reference` in die Bewertung aufgenommen.
 Diese Struktur verbessert die Praxisnähe, beweist aber allein noch keine historische Standardgleichheit.
+
+Aktuell enthält das Repo standardmäßig **keine echten lizenzierten dbx-Type-II-Referenzaufnahmen**. Deshalb ist die mitgelieferte Primärbasis zunächst synthetisch/approximativ und entsprechend gekennzeichnet.
 
 ## Lokale Checks
 
@@ -133,8 +140,17 @@ pio run -e teensy41
 # Standard-Offline-Bewertung
 python ocx_type2_harness.py --out-dir artifacts/harness
 
-# Optional: Referenzmaterial (name.wav pro Harness-Case)
-python ocx_type2_harness.py --out-dir artifacts/harness_ref --reference-dir refs/type2
+# Synthetisches Referenzpaket erzeugen (reproduzierbar)
+python ocx_type2_harness.py --generate-synth-refs --reference-dir refs --out-dir artifacts/harness_refs
+
+# Reale Referenzen indexieren (falls legal vorhanden)
+python ocx_type2_harness.py --index-real-refs --reference-dir refs --out-dir artifacts/harness_refs
+
+# Optional: reale Referenzen aus Manifest laden (nur rechtlich saubere URLs)
+python ocx_type2_harness.py --fetch-real-refs-manifest refs/type2_cassette_real/manifest.example.json --reference-dir refs --out-dir artifacts/harness_refs
+
+# Bewertung nur cassette-priority Fälle, getrennt nach Source-Typ (real/synthetic/all)
+python ocx_type2_harness.py --out-dir artifacts/harness_ref --reference-dir refs --cassette-priority-only --reference-source all
 
 # Decoder-Overrides
 python ocx_type2_harness.py --override strength=0.80 --override release_ms=160

@@ -37,6 +37,16 @@ Der Harness behandelt dbx-Type-II-Cassette jetzt explizit als Primärpfad:
 
 Dieser Pfad verbessert die Praxisnähe deutlich, ist aber weiterhin keine automatische „100 % dbx-original“-Aussage.
 
+
+## Referenzbeschaffung / Generierung (neu)
+
+- Harness unterstützt jetzt eine zweistufige Referenzpipeline:
+  - `--index-real-refs` und optional `--fetch-real-refs-manifest` für legal belegte reale Daten in `refs/type2_cassette_real/`.
+  - `--generate-synth-refs` für reproduzierbare synthetische Fälle in `refs/type2_cassette_synth/`.
+- Reale und synthetische Fälle werden im Lauf getrennt geführt (`reference_source_type`) und getrennt zusammengefasst (`split_summary.json`).
+- Reale Referenzen werden im Score höher gewichtet als synthetische; Trust-Level wird zusätzlich berücksichtigt.
+- Wichtige Grenze bleibt explizit: der interne Approximations-Encoder ist ein Testwerkzeug und **kein** Beweis historischer dbx-Type-II-Normgleichheit.
+
 ## A) Referenzlose Bewertung (Plausibilität/Stabilität)
 
 Bewertet werden u. a.:
