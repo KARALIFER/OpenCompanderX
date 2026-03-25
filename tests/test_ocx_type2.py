@@ -327,10 +327,31 @@ def test_help_text_mentions_400hz_calibration_tone():
     assert "toggle 400 Hz calibration tone" in ino
 
 
+def test_help_text_mentions_signal_diag_and_tone_channel_mode_commands():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "print signal diagnostics snapshot" in ino
+    assert "reset signal diagnostics counters" in ino
+    assert "cycle tone channel mode BOTH -> LEFT -> RIGHT" in ino
+
+
 def test_firmware_documents_post_decoder_calibration_tone_routing():
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
     assert "calibration tone is mixed post-decoder into the output path" in ino
     assert "post-decoder output injection" in ino
+
+
+def test_firmware_compact_and_snapshot_output_include_bypass_and_signal_metrics():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "bypass=" in ino
+    assert "OCX SIGNAL DIAGNOSTICS" in ino
+    assert "Gain dB last/min/max/avg" in ino
+    assert "Snapshot bypass now" in ino
+
+
+def test_firmware_status_mentions_tone_channel_mode():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "Tone channel mode" in ino
+    assert "tone channel mode is an output routing test" in ino
 
 
 def test_partial_reference_coverage_does_not_break_evaluation(tmp_path):
