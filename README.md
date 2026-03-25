@@ -63,10 +63,16 @@ Aktueller Stand `ocx_type2_universal_v2`:
 - `tone.frequency_hz = 400.0`
 - `tone.level_dbfs = -9.8`
 
+Hinweis zur Samplerate: Das Profil/Harness arbeitet mit **44.1 kHz nominal**.
+Die Teensy-Firmware läuft zur Laufzeit auf `AUDIO_SAMPLE_RATE_EXACT` (leicht abweichender exakter I2S-Takt),
+ohne dass daraus automatisch andere Profilparameter abgeleitet werden.
+
 ## Kalibrierpegel vs. Decoder-Referenz (bewusst getrennt)
 
 - `tone.level_dbfs` ist der **Kalibrier-Testtonpegel** für den realen Deck-/Band-Abgleich.
 - `decoder.reference_db` ist ein **interner Modellparameter** der Decoder-Regelung.
+- In der Firmware wird der Kalibrierton **post-decoder** in den Ausgangsmix eingespeist
+  (Ausgangs-/Workflow-Kalibrierung, kein Decoder-Eingangstestton).
 
 Aktueller Hardware-Bezugspunkt für das hier dokumentierte Nutzer-Setup
 (Mixtape Nerd + TEAC W-1200 + RTM-Band):

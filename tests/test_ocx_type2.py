@@ -327,6 +327,12 @@ def test_help_text_mentions_400hz_calibration_tone():
     assert "toggle 400 Hz calibration tone" in ino
 
 
+def test_firmware_documents_post_decoder_calibration_tone_routing():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "calibration tone is mixed post-decoder into the output path" in ino
+    assert "post-decoder output injection" in ino
+
+
 def test_partial_reference_coverage_does_not_break_evaluation(tmp_path):
     import soundfile as sf
 

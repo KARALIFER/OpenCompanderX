@@ -130,6 +130,14 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
   (hier: `-9.8 dBFS` im genannten Setup).
 - `decoder.reference_db` = interner Decoder-Referenzparameter (derzeit `-18.0`),
   separat zu validieren und **nicht** automatisch aus dem Kalibrierpegel abzuleiten.
+- Routing-Hinweis: Der Firmware-Kalibrierton wird **post-decoder** in den Ausgangspfad gemischt;
+  er durchläuft nicht die Decoderregelung selbst.
+
+## Samplerate-Einordnung
+
+- Profil/Simulator/Harness verwenden 44.1 kHz als nominale Vergleichsbasis.
+- Auf Teensy 4.1 läuft die Firmware mit `AUDIO_SAMPLE_RATE_EXACT` (I2S-Takt, leicht abweichend von exakt 44100.0 Hz).
+- Diese kleine Differenz wird bewusst akzeptiert; die Parametertrennung bleibt unverändert und wird über Hardwaretelemetrie/ Hörtest validiert.
 
 ## Hardware-Testablauf (telemetriegeführt)
 
