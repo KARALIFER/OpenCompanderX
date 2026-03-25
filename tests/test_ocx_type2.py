@@ -447,3 +447,11 @@ def test_reference_case_discovery_resamples_to_requested_sample_rate(tmp_path):
     assert int(case["prepared_sample_rate_hz"]) == fs_target
     assert int(case["encoded_sample_rate_hz"]) == fs_ref
     assert np.asarray(case["input"]).shape[0] > 0
+
+
+def test_firmware_ino_has_linked_stereo_detector_and_central_output_finalize():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text(encoding="utf-8")
+    assert "processStereo(" in ino
+    assert "finalizeOutput(" in ino
+    assert "linkedEnv2" in ino
+    assert "fmaxf(scL * scL, scR * scR)" in ino
