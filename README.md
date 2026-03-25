@@ -298,3 +298,12 @@ The extended cassette-primary harness primarily increases practical validation d
 - Historical standard accuracy of a dbx Type-II decoder is not currently established.
 - Disc-specific assumptions, such as implicit LF roll-off carry-over, are not silently adopted as cassette defaults.
 - Remaining deviations are tracked through harness and hardware measurements rather than being masked by equivalence claims.
+
+## Ordered Parts
+
+| Part | Link |
+|---|---|
+| Teensy 4.1 (with pins) | [Amazon.de](https://www.amazon.de/dp/B08CTM3279?ref=ppx_yo2ov_dt_b_fed_asin_title) |
+| Audio Adaptor Board for Teensy 4.0 | [Amazon.de](https://www.amazon.de/dp/B07Z6NW913?ref=ppx_yo2ov_dt_b_fed_asin_title) |
+| RUNCCI-YUN 6pcs 3.5mm TRRS Female Jack to Bare Wire Cable (30 cm) | [Amazon.de](https://www.amazon.de/dp/B0CWR1CPNG?smid=AT0FJ7CZCB0G9&ref_=chk_typ_imgToDp&th=1) |
+| 2.54 mm 40-Pin Male/Female Header Set | [Amazon.de](https://www.amazon.de/dp/B0CWR2TZNX?ref=ppx_yo2ov_dt_b_fed_asin_title) |
