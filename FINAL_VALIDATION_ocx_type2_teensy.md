@@ -160,6 +160,17 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
 `m` liefert dafür eine kompakte Einzeile (`[TLM] ...`) ohne seriellen Spam im Audiopfad.
 Die Zeile enthält explizit `cpuRes=OK/TIGHT`, `memRes=OK/TIGHT`, `bypass=ON/OFF` sowie letzten Gain/Env für schnelle Laufzeit- und Decoder-Interpretation.
 Zusätzlich liefert `n` einen Signaldiagnose-Snapshot (Input/Output L/R, Peak/RMS/Mean, Gain-Min/Max, Decode-Aktivität, L/R-Balance), wobei der aktuelle Bypass-Status ausdrücklich ausgegeben wird.
+Der Snapshot enthält jetzt außerdem:
+- RMS- und Peak-L/R-Balance getrennt für in/out
+- normierte L/R-Korrelation und L-R-Differenzmittel als leichte Kanal-/Azimuth-/Phasenhinweise
+- Sidechain-HF/LF-Proxy (`high-vs-low`, ohne FFT) als groben Mistracking-Kontextindikator
+- Aktivitätsklassifikation (`LOW`/`MODERATE`/`HIGH`) plus kurze `Cassette quick hints`
+- Clamp-Statistik (`maxCut`/`maxBoost` hits und near-limit-Anteile) inkl. kurzer Interpretation zur Einordnung von Grenzlauf
+
+Für Clipping gibt es neben den kumulativen Zählern jetzt `inClipNew/outClipNew` in der kompakten `m`-Zeile sowie das Kommando `v`, damit neue Übersteuerungen seit der letzten Abfrage direkt sichtbar sind.
+
+Zusätzliche Repo-/Gate-Festlegung:
+- Der `.ino`-Pfad wird ausdrücklich berücksichtigt; `toneChannelModeLabel` nutzt eine `uint8_t`-Signatur, um bekannte Arduino-Preprocessor-Prototyp-Fallen mit Enum-Typen zu vermeiden.
 
 ## Profilentscheidungslogik
 
