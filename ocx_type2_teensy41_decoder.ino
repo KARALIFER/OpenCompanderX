@@ -83,6 +83,11 @@ struct Biquad {
   }
 };
 
+struct ClipDelta {
+  uint32_t inputNew = 0;
+  uint32_t outputNew = 0;
+};
+
 struct OnePoleHP {
   float alpha = 0.0f;
   float prevX = 0.0f;
@@ -182,6 +187,16 @@ public:
     uint32_t decoderActiveCount = 0;
     uint32_t bypassSampleCount = 0;
     uint32_t decodedSampleCount = 0;
+    uint32_t clampCutHitCount = 0;
+    uint32_t clampBoostHitCount = 0;
+    uint32_t nearCutCount = 0;
+    uint32_t nearBoostCount = 0;
+    float inputAbsDiffMean = 0.0f;
+    float outputAbsDiffMean = 0.0f;
+    float inputCrossMean = 0.0f;
+    float outputCrossMean = 0.0f;
+    float lowProxyMean = 0.0f;
+    float highProxyMean = 0.0f;
   };
 
   void setBypass(bool v)             { bypass = v; }
@@ -223,7 +238,14 @@ public:
   uint32_t getAllocFailCount() const { return allocFailCount; }
   uint32_t getInputClipCount() const { return inputClipCount; }
   uint32_t getOutputClipCount() const { return outputClipCount; }
-  void clearRuntimeCounters()        { allocFailCount = 0; inputClipCount = 0; outputClipCount = 0; }
+  ClipDelta consumeClipDelta();
+  void clearRuntimeCounters()        {
+    allocFailCount = 0;
+    inputClipCount = 0;
+    outputClipCount = 0;
+    lastReportedInputClipCount = 0;
+    lastReportedOutputClipCount = 0;
+  }
   void clearClipFlags()              { inputClipFlag = false; outputClipFlag = false; }
   float getLastGainDb() const        { return diagLastGainDb; }
   float getLastEnvDb() const         { return diagLastEnvDb; }
@@ -307,6 +329,18 @@ private:
   uint32_t diagDecoderActiveCount = 0;
   uint32_t diagBypassSampleCount = 0;
   uint32_t diagDecodedSampleCount = 0;
+  uint32_t diagClampCutHitCount = 0;
+  uint32_t diagClampBoostHitCount = 0;
+  uint32_t diagNearCutCount = 0;
+  uint32_t diagNearBoostCount = 0;
+  float diagInputDiffAbsSum = 0.0f;
+  float diagOutputDiffAbsSum = 0.0f;
+  float diagInputCrossSum = 0.0f;
+  float diagOutputCrossSum = 0.0f;
+  float diagLowProxySum = 0.0f;
+  float diagHighProxySum = 0.0f;
+  uint32_t lastReportedInputClipCount = 0;
+  uint32_t lastReportedOutputClipCount = 0;
 
   void recalcAll() {
     setInputTrimDb(inputTrimDb);
@@ -356,6 +390,8 @@ private:
     diagInputSumSqR += inR * inR;
     diagInputSumL += inL;
     diagInputSumR += inR;
+    diagInputDiffAbsSum += fabsf(inL - inR);
+    diagInputCrossSum += inL * inR;
     ++diagSampleCount;
 
     float xL = dcBlock[0].process(sanitizef(inL) * inputGain);
@@ -382,17 +418,27 @@ private:
       diagOutputSumSqR += outR * outR;
       diagOutputSumL += outL;
       diagOutputSumR += outR;
+      diagOutputDiffAbsSum += fabsf(outL - outR);
+      diagOutputCrossSum += outL * outR;
       return;
     }
 
     const float scL = scShelf[0].process(scHP[0].process(xL));
     const float scR = scShelf[1].process(scHP[1].process(xR));
+    const float lowProxy = 0.5f * (fabsf(xL) + fabsf(xR));
+    const float highProxy = 0.5f * (fabsf(scL) + fabsf(scR));
+    diagLowProxySum += lowProxy;
+    diagHighProxySum += highProxy;
     const float linkedP = fmaxf(scL * scL, scR * scR); // Stereo link avoids image wander on unbalanced channels.
     const float coeff = (linkedP > linkedEnv2) ? attackCoeff : releaseCoeff;
     linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedP);
     const float env = sqrtf(linkedEnv2 + 1.0e-12f);
-    float gainDb = (linToDb(env) - referenceDb) * strength;
-    gainDb = clampf(gainDb, -maxCutDb, maxBoostDb);
+    const float rawGainDb = (linToDb(env) - referenceDb) * strength;
+    float gainDb = clampf(rawGainDb, -maxCutDb, maxBoostDb);
+    if (rawGainDb <= -maxCutDb) ++diagClampCutHitCount;
+    if (rawGainDb >=  maxBoostDb) ++diagClampBoostHitCount;
+    if (gainDb <= (-maxCutDb + 1.0f)) ++diagNearCutCount;
+    if (gainDb >= (maxBoostDb - 1.0f)) ++diagNearBoostCount;
     diagLastGainDb = gainDb;
     if (diagGainCount == 0) {
       diagMinGainDb = gainDb;
@@ -418,6 +464,8 @@ private:
     diagOutputSumSqR += outR * outR;
     diagOutputSumL += outL;
     diagOutputSumR += outR;
+    diagOutputDiffAbsSum += fabsf(outL - outR);
+    diagOutputCrossSum += outL * outR;
   }
 };
 
@@ -445,7 +493,28 @@ void AudioEffectOCXType2DecodeStereo::resetSignalDiagnostics() {
   diagDecoderActiveCount = 0;
   diagBypassSampleCount = 0;
   diagDecodedSampleCount = 0;
+  diagClampCutHitCount = 0;
+  diagClampBoostHitCount = 0;
+  diagNearCutCount = 0;
+  diagNearBoostCount = 0;
+  diagInputDiffAbsSum = 0.0f;
+  diagOutputDiffAbsSum = 0.0f;
+  diagInputCrossSum = 0.0f;
+  diagOutputCrossSum = 0.0f;
+  diagLowProxySum = 0.0f;
+  diagHighProxySum = 0.0f;
   interrupts();
+}
+
+ClipDelta AudioEffectOCXType2DecodeStereo::consumeClipDelta() {
+  ClipDelta delta;
+  noInterrupts();
+  delta.inputNew = inputClipCount - lastReportedInputClipCount;
+  delta.outputNew = outputClipCount - lastReportedOutputClipCount;
+  lastReportedInputClipCount = inputClipCount;
+  lastReportedOutputClipCount = outputClipCount;
+  interrupts();
+  return delta;
 }
 
 AudioEffectOCXType2DecodeStereo::DiagSnapshot AudioEffectOCXType2DecodeStereo::getSignalDiagnosticsSnapshot() const {
@@ -473,6 +542,16 @@ AudioEffectOCXType2DecodeStereo::DiagSnapshot AudioEffectOCXType2DecodeStereo::g
   snap.decoderActiveCount = diagDecoderActiveCount;
   snap.bypassSampleCount = diagBypassSampleCount;
   snap.decodedSampleCount = diagDecodedSampleCount;
+  snap.clampCutHitCount = diagClampCutHitCount;
+  snap.clampBoostHitCount = diagClampBoostHitCount;
+  snap.nearCutCount = diagNearCutCount;
+  snap.nearBoostCount = diagNearBoostCount;
+  snap.inputAbsDiffMean = (diagSampleCount > 0) ? (diagInputDiffAbsSum / (float)diagSampleCount) : 0.0f;
+  snap.outputAbsDiffMean = (diagSampleCount > 0) ? (diagOutputDiffAbsSum / (float)diagSampleCount) : 0.0f;
+  snap.inputCrossMean = (diagSampleCount > 0) ? (diagInputCrossSum / (float)diagSampleCount) : 0.0f;
+  snap.outputCrossMean = (diagSampleCount > 0) ? (diagOutputCrossSum / (float)diagSampleCount) : 0.0f;
+  snap.lowProxyMean = (diagDecodedSampleCount > 0) ? (diagLowProxySum / (float)diagDecodedSampleCount) : 0.0f;
+  snap.highProxyMean = (diagDecodedSampleCount > 0) ? (diagHighProxySum / (float)diagDecodedSampleCount) : 0.0f;
   interrupts();
   return snap;
 }
@@ -544,8 +623,9 @@ enum ToneChannelMode : uint8_t { TONE_BOTH = 0, TONE_LEFT = 1, TONE_RIGHT = 2 };
 ToneChannelMode toneChannelMode = TONE_BOTH;
 unsigned long lastStatusMs = 0;
 
-const char* toneChannelModeLabel(ToneChannelMode mode) {
-  switch (mode) {
+// Keep this helper Arduino-.ino preprocessor safe: use uint8_t in signature to avoid enum prototype ordering issues.
+const char* toneChannelModeLabel(uint8_t mode) {
+  switch ((ToneChannelMode)mode) {
     case TONE_LEFT: return "LEFT";
     case TONE_RIGHT: return "RIGHT";
     case TONE_BOTH:
@@ -594,6 +674,7 @@ void printHelp() {
   Serial.println(F("  n  : print signal diagnostics snapshot (input/output/gain activity)"));
   Serial.println(F("  N  : reset signal diagnostics counters"));
   Serial.println(F("  x  : clear clip flags"));
+  Serial.println(F("  v  : print NEW clip counts since last v/m/p call"));
   Serial.println(F("  X  : clear clip flags + runtime counters + signal diagnostics + usage maxima"));
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
@@ -615,6 +696,7 @@ void printHelp() {
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
   Serial.println(F("  k  : cycle tone channel mode BOTH -> LEFT -> RIGHT"));
   Serial.println(F("  Detector: stereo-linked peak detector (shared gain on L/R)."));
+  Serial.println(F("  Snapshot includes clamp-hit/near-limit stats for maxCut/maxBoost interpretation."));
   Serial.println(F("  NOTE: calibration tone is mixed post-decoder into the output path."));
   Serial.println(F("  NOTE: tone channel mode is an output routing test (not a decoder-input test)."));
   Serial.println();
@@ -659,6 +741,9 @@ void printCompactTelemetryLine() {
   Serial.print(F(" allocFail=")); Serial.print(ocx.getAllocFailCount());
   Serial.print(F(" inClip=")); Serial.print(ocx.getInputClipCount());
   Serial.print(F(" outClip=")); Serial.print(ocx.getOutputClipCount());
+  const ClipDelta clipDelta = ocx.consumeClipDelta();
+  Serial.print(F(" inClipNew=")); Serial.print(clipDelta.inputNew);
+  Serial.print(F(" outClipNew=")); Serial.print(clipDelta.outputNew);
   Serial.print(F(" bypass=")); Serial.print(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.print(F(" gDb=")); Serial.print(ocx.getLastGainDb(), 2);
   Serial.print(F(" envDb=")); Serial.print(ocx.getLastEnvDb(), 1);
@@ -690,9 +775,21 @@ void printSignalDiagnosticsSnapshot() {
   const float deltaPeakDb = linToDb(outPeakMono) - linToDb(inPeakMono);
   const float inBalanceDb = linToDb(inRmsL) - linToDb(inRmsR);
   const float outBalanceDb = linToDb(outRmsL) - linToDb(outRmsR);
+  const float inPeakBalanceDb = linToDb(d.inputPeakL) - linToDb(d.inputPeakR);
+  const float outPeakBalanceDb = linToDb(d.outputPeakL) - linToDb(d.outputPeakR);
   const float decodeActivityPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.decoderActiveCount / (float)d.gainSampleCount) : 0.0f;
   const float bypassPct = 100.0f * (float)d.bypassSampleCount / n;
   const float decodedPct = 100.0f * (float)d.decodedSampleCount / n;
+  const float cutClampPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.clampCutHitCount / (float)d.gainSampleCount) : 0.0f;
+  const float boostClampPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.clampBoostHitCount / (float)d.gainSampleCount) : 0.0f;
+  const float nearCutPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.nearCutCount / (float)d.gainSampleCount) : 0.0f;
+  const float nearBoostPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.nearBoostCount / (float)d.gainSampleCount) : 0.0f;
+  const float highLowRatioDb = linToDb(d.highProxyMean) - linToDb(d.lowProxyMean);
+  const float inCorrNorm = d.inputCrossMean / fmaxf(inRmsL * inRmsR, 1.0e-9f);
+  const float outCorrNorm = d.outputCrossMean / fmaxf(outRmsL * outRmsR, 1.0e-9f);
+  const char* activityLabel = (decodeActivityPct < 15.0f) ? "LOW" : ((decodeActivityPct > 60.0f) ? "HIGH" : "MODERATE");
+  const char* lrAlert = (fabsf(outBalanceDb) >= 3.0f || d.outputAbsDiffMean >= 0.25f) ? "CHECK-LR" : "OK";
+  const char* corrAlert = (outCorrNorm <= -0.35f) ? "OUT-OF-PHASE?" : ((fabsf(outCorrNorm) < 0.15f) ? "WEAK-CORR" : "OK");
 
   Serial.print(F("Samples: ")); Serial.println(d.sampleCount);
   Serial.print(F("Path share during snapshot: bypass=")); Serial.print(bypassPct, 1);
@@ -717,12 +814,34 @@ void printSignalDiagnosticsSnapshot() {
   Serial.print(F("Delta RMS (out-in): ")); Serial.print(deltaRmsDb, 2); Serial.println(F(" dB"));
   Serial.print(F("Delta Peak(out-in): ")); Serial.print(deltaPeakDb, 2); Serial.println(F(" dB"));
   Serial.print(F("L/R balance in/out: ")); Serial.print(inBalanceDb, 2); Serial.print(F(" dB / ")); Serial.print(outBalanceDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("L/R peak balance in/out: ")); Serial.print(inPeakBalanceDb, 2); Serial.print(F(" dB / "));
+  Serial.print(outPeakBalanceDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("L-R abs mean in/out: ")); Serial.print(d.inputAbsDiffMean, 5); Serial.print(F(" / "));
+  Serial.println(d.outputAbsDiffMean, 5);
+  Serial.print(F("L/R correlation in/out: ")); Serial.print(inCorrNorm, 3); Serial.print(F(" / "));
+  Serial.print(outCorrNorm, 3); Serial.print(F("  -> ")); Serial.println(corrAlert);
+  Serial.print(F("Sidechain spectral proxy (high-vs-low): ")); Serial.print(highLowRatioDb, 2);
+  Serial.println(F(" dB (decoded path only)"));
   Serial.print(F("Detector env (last): ")); Serial.print(d.lastEnvDb, 2); Serial.println(F(" dBFS"));
   Serial.print(F("Gain dB last/min/max/avg: ")); Serial.print(d.lastGainDb, 2); Serial.print(F(" / "));
   Serial.print(d.minGainDb, 2); Serial.print(F(" / ")); Serial.print(d.maxGainDb, 2);
   Serial.print(F(" / ")); Serial.println(d.avgGainDb, 2);
+  Serial.print(F("Gain clamp hits cut/boost: ")); Serial.print(d.clampCutHitCount); Serial.print(F(" / "));
+  Serial.print(d.clampBoostHitCount); Serial.print(F(" (")); Serial.print(cutClampPct, 1); Serial.print(F("% / "));
+  Serial.print(boostClampPct, 1); Serial.println(F("%)"));
+  Serial.print(F("Gain near-limit <=1 dB cut/boost: ")); Serial.print(nearCutPct, 1); Serial.print(F("% / "));
+  Serial.print(nearBoostPct, 1); Serial.println(F("%"));
   Serial.print(F("Decode activity (|gain|>=1 dB): ")); Serial.print(decodeActivityPct, 1);
-  Serial.println(F("% of decoded samples"));
+  Serial.print(F("% of decoded samples (")); Serial.print(activityLabel); Serial.println(F(")"));
+  if (cutClampPct > 2.0f || boostClampPct > 2.0f) {
+    Serial.println(F("Clamp interpretation: frequent clamp contact -> check level/strength/reference fit."));
+  } else if (nearCutPct > 20.0f || nearBoostPct > 20.0f) {
+    Serial.println(F("Clamp interpretation: often near limit -> watch for mistracking risk on hard passages."));
+  } else {
+    Serial.println(F("Clamp interpretation: clamp usage currently low."));
+  }
+  Serial.print(F("Cassette quick hints: LR=")); Serial.print(lrAlert);
+  Serial.print(F(" corr=")); Serial.println(corrAlert);
   Serial.println();
 }
 
@@ -752,6 +871,9 @@ void printStatus() {
   Serial.print(F("Output clip seen: ")); Serial.println(ocx.hasOutputClip() ? F("YES") : F("NO"));
   Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
   Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
+  const ClipDelta delta = ocx.consumeClipDelta();
+  Serial.print(F("Input clip NEW since last report: ")); Serial.println(delta.inputNew);
+  Serial.print(F("Output clip NEW since last report: ")); Serial.println(delta.outputNew);
   Serial.print(F("Allocate fail count: ")); Serial.println(ocx.getAllocFailCount());
   printTelemetry();
 }
@@ -766,6 +888,11 @@ void handleSerial() {
       case 'n': printSignalDiagnosticsSnapshot(); break;
       case 'N': ocx.resetSignalDiagnostics(); break;
       case 'x': ocx.clearClipFlags(); break;
+      case 'v': {
+        const ClipDelta delta = ocx.consumeClipDelta();
+        Serial.print(F("[CLIPΔ] inNew=")); Serial.print(delta.inputNew);
+        Serial.print(F(" outNew=")); Serial.println(delta.outputNew);
+      } break;
       case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); ocx.resetSignalDiagnostics(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
