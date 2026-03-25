@@ -159,6 +159,30 @@ class AudioEffectOCXType2DecodeStereo : public AudioStream {
 public:
   AudioEffectOCXType2DecodeStereo() : AudioStream(2, inputQueueArray) { recalcAll(); resetState(); }
   virtual void update(void);
+  struct DiagSnapshot {
+    float inputPeakL = 0.0f;
+    float inputPeakR = 0.0f;
+    float outputPeakL = 0.0f;
+    float outputPeakR = 0.0f;
+    float inputSumSqL = 0.0f;
+    float inputSumSqR = 0.0f;
+    float outputSumSqL = 0.0f;
+    float outputSumSqR = 0.0f;
+    float inputMeanL = 0.0f;
+    float inputMeanR = 0.0f;
+    float outputMeanL = 0.0f;
+    float outputMeanR = 0.0f;
+    uint32_t sampleCount = 0;
+    float lastGainDb = 0.0f;
+    float minGainDb = 0.0f;
+    float maxGainDb = 0.0f;
+    float avgGainDb = 0.0f;
+    float lastEnvDb = -120.0f;
+    uint32_t gainSampleCount = 0;
+    uint32_t decoderActiveCount = 0;
+    uint32_t bypassSampleCount = 0;
+    uint32_t decodedSampleCount = 0;
+  };
 
   void setBypass(bool v)             { bypass = v; }
   bool getBypass() const             { return bypass; }
@@ -201,6 +225,10 @@ public:
   uint32_t getOutputClipCount() const { return outputClipCount; }
   void clearRuntimeCounters()        { allocFailCount = 0; inputClipCount = 0; outputClipCount = 0; }
   void clearClipFlags()              { inputClipFlag = false; outputClipFlag = false; }
+  float getLastGainDb() const        { return diagLastGainDb; }
+  float getLastEnvDb() const         { return diagLastEnvDb; }
+  void resetSignalDiagnostics();
+  DiagSnapshot getSignalDiagnosticsSnapshot() const;
   void resetState() {
     clearClipFlags();
     for (int ch = 0; ch < 2; ++ch) {
@@ -210,6 +238,10 @@ public:
       dcBlock[ch].reset();
     }
     linkedEnv2 = 1.0e-9f;
+    noInterrupts();
+    diagLastGainDb = 0.0f;
+    diagLastEnvDb = -120.0f;
+    interrupts();
   }
 
 private:
@@ -253,6 +285,29 @@ private:
   float dcBlockHz = 12.0f;
   OnePoleHP dcBlock[2];
 
+  float diagInputPeakL = 0.0f;
+  float diagInputPeakR = 0.0f;
+  float diagOutputPeakL = 0.0f;
+  float diagOutputPeakR = 0.0f;
+  float diagInputSumSqL = 0.0f;
+  float diagInputSumSqR = 0.0f;
+  float diagOutputSumSqL = 0.0f;
+  float diagOutputSumSqR = 0.0f;
+  float diagInputSumL = 0.0f;
+  float diagInputSumR = 0.0f;
+  float diagOutputSumL = 0.0f;
+  float diagOutputSumR = 0.0f;
+  uint32_t diagSampleCount = 0;
+  float diagLastGainDb = 0.0f;
+  float diagMinGainDb = 0.0f;
+  float diagMaxGainDb = 0.0f;
+  float diagGainDbSum = 0.0f;
+  uint32_t diagGainCount = 0;
+  float diagLastEnvDb = -120.0f;
+  uint32_t diagDecoderActiveCount = 0;
+  uint32_t diagBypassSampleCount = 0;
+  uint32_t diagDecodedSampleCount = 0;
+
   void recalcAll() {
     setInputTrimDb(inputTrimDb);
     setOutputTrimDb(outputTrimDb);
@@ -293,6 +348,16 @@ private:
   }
 
   inline void processStereo(float inL, float inR, float &outL, float &outR) {
+    const float absInL = fabsf(inL);
+    const float absInR = fabsf(inR);
+    if (absInL > diagInputPeakL) diagInputPeakL = absInL;
+    if (absInR > diagInputPeakR) diagInputPeakR = absInR;
+    diagInputSumSqL += inL * inL;
+    diagInputSumSqR += inR * inR;
+    diagInputSumL += inL;
+    diagInputSumR += inR;
+    ++diagSampleCount;
+
     float xL = dcBlock[0].process(sanitizef(inL) * inputGain);
     float xR = dcBlock[1].process(sanitizef(inR) * inputGain);
     if (fabsf(xL) > 0.98f) {
@@ -308,6 +373,15 @@ private:
       // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
       outL = finalizeOutput(xL);
       outR = finalizeOutput(xR);
+      ++diagBypassSampleCount;
+      const float absOutL = fabsf(outL);
+      const float absOutR = fabsf(outR);
+      if (absOutL > diagOutputPeakL) diagOutputPeakL = absOutL;
+      if (absOutR > diagOutputPeakR) diagOutputPeakR = absOutR;
+      diagOutputSumSqL += outL * outL;
+      diagOutputSumSqR += outR * outR;
+      diagOutputSumL += outL;
+      diagOutputSumR += outR;
       return;
     }
 
@@ -319,12 +393,89 @@ private:
     const float env = sqrtf(linkedEnv2 + 1.0e-12f);
     float gainDb = (linToDb(env) - referenceDb) * strength;
     gainDb = clampf(gainDb, -maxCutDb, maxBoostDb);
+    diagLastGainDb = gainDb;
+    if (diagGainCount == 0) {
+      diagMinGainDb = gainDb;
+      diagMaxGainDb = gainDb;
+    } else {
+      if (gainDb < diagMinGainDb) diagMinGainDb = gainDb;
+      if (gainDb > diagMaxGainDb) diagMaxGainDb = gainDb;
+    }
+    diagGainDbSum += gainDb;
+    ++diagGainCount;
+    if (fabsf(gainDb) >= 1.0f) ++diagDecoderActiveCount;
+    ++diagDecodedSampleCount;
+    diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
 
     outL = finalizeOutput(deemph[0].process(xL * gainLin));
     outR = finalizeOutput(deemph[1].process(xR * gainLin));
+    const float absOutL = fabsf(outL);
+    const float absOutR = fabsf(outR);
+    if (absOutL > diagOutputPeakL) diagOutputPeakL = absOutL;
+    if (absOutR > diagOutputPeakR) diagOutputPeakR = absOutR;
+    diagOutputSumSqL += outL * outL;
+    diagOutputSumSqR += outR * outR;
+    diagOutputSumL += outL;
+    diagOutputSumR += outR;
   }
 };
+
+void AudioEffectOCXType2DecodeStereo::resetSignalDiagnostics() {
+  noInterrupts();
+  diagInputPeakL = 0.0f;
+  diagInputPeakR = 0.0f;
+  diagOutputPeakL = 0.0f;
+  diagOutputPeakR = 0.0f;
+  diagInputSumSqL = 0.0f;
+  diagInputSumSqR = 0.0f;
+  diagOutputSumSqL = 0.0f;
+  diagOutputSumSqR = 0.0f;
+  diagInputSumL = 0.0f;
+  diagInputSumR = 0.0f;
+  diagOutputSumL = 0.0f;
+  diagOutputSumR = 0.0f;
+  diagSampleCount = 0;
+  diagLastGainDb = 0.0f;
+  diagMinGainDb = 0.0f;
+  diagMaxGainDb = 0.0f;
+  diagGainDbSum = 0.0f;
+  diagGainCount = 0;
+  diagLastEnvDb = -120.0f;
+  diagDecoderActiveCount = 0;
+  diagBypassSampleCount = 0;
+  diagDecodedSampleCount = 0;
+  interrupts();
+}
+
+AudioEffectOCXType2DecodeStereo::DiagSnapshot AudioEffectOCXType2DecodeStereo::getSignalDiagnosticsSnapshot() const {
+  DiagSnapshot snap;
+  noInterrupts();
+  snap.inputPeakL = diagInputPeakL;
+  snap.inputPeakR = diagInputPeakR;
+  snap.outputPeakL = diagOutputPeakL;
+  snap.outputPeakR = diagOutputPeakR;
+  snap.inputSumSqL = diagInputSumSqL;
+  snap.inputSumSqR = diagInputSumSqR;
+  snap.outputSumSqL = diagOutputSumSqL;
+  snap.outputSumSqR = diagOutputSumSqR;
+  snap.inputMeanL = (diagSampleCount > 0) ? (diagInputSumL / (float)diagSampleCount) : 0.0f;
+  snap.inputMeanR = (diagSampleCount > 0) ? (diagInputSumR / (float)diagSampleCount) : 0.0f;
+  snap.outputMeanL = (diagSampleCount > 0) ? (diagOutputSumL / (float)diagSampleCount) : 0.0f;
+  snap.outputMeanR = (diagSampleCount > 0) ? (diagOutputSumR / (float)diagSampleCount) : 0.0f;
+  snap.sampleCount = diagSampleCount;
+  snap.lastGainDb = diagLastGainDb;
+  snap.minGainDb = diagMinGainDb;
+  snap.maxGainDb = diagMaxGainDb;
+  snap.avgGainDb = (diagGainCount > 0) ? (diagGainDbSum / (float)diagGainCount) : 0.0f;
+  snap.lastEnvDb = diagLastEnvDb;
+  snap.gainSampleCount = diagGainCount;
+  snap.decoderActiveCount = diagDecoderActiveCount;
+  snap.bypassSampleCount = diagBypassSampleCount;
+  snap.decodedSampleCount = diagDecodedSampleCount;
+  interrupts();
+  return snap;
+}
 
 void AudioEffectOCXType2DecodeStereo::update(void) {
   audio_block_t *inL = receiveReadOnly(0);
@@ -389,14 +540,27 @@ AudioConnection patchCord8(mixR, 0, i2sOut, 1);
 bool  calToneEnabled = false;
 float calToneDb = OCXProfile::kToneDb;
 float calToneHz = OCXProfile::kToneHz;
+enum ToneChannelMode : uint8_t { TONE_BOTH = 0, TONE_LEFT = 1, TONE_RIGHT = 2 };
+ToneChannelMode toneChannelMode = TONE_BOTH;
 unsigned long lastStatusMs = 0;
+
+const char* toneChannelModeLabel(ToneChannelMode mode) {
+  switch (mode) {
+    case TONE_LEFT: return "LEFT";
+    case TONE_RIGHT: return "RIGHT";
+    case TONE_BOTH:
+    default: return "BOTH";
+  }
+}
 
 void updateTone() {
   calToneDb = clampf(calToneDb, -60.0f, -1.0f);
   calTone.frequency(calToneHz);
   calTone.amplitude(calToneEnabled ? clampf(dbToLin(calToneDb), 0.0f, 0.89f) : 0.0f);
-  mixL.gain(1, calToneEnabled ? 1.0f : 0.0f);
-  mixR.gain(1, calToneEnabled ? 1.0f : 0.0f);
+  const float toneGainL = (calToneEnabled && toneChannelMode != TONE_RIGHT) ? 1.0f : 0.0f;
+  const float toneGainR = (calToneEnabled && toneChannelMode != TONE_LEFT) ? 1.0f : 0.0f;
+  mixL.gain(1, toneGainL);
+  mixR.gain(1, toneGainR);
 }
 
 void applyFactoryPreset() {
@@ -418,6 +582,7 @@ void applyFactoryPreset() {
   ocx.setDcBlockHz(OCXProfile::kDcBlockHz);
   ocx.setHeadroomDb(OCXProfile::kHeadroomDb);
   ocx.resetState();
+  ocx.resetSignalDiagnostics();
 }
 
 void printHelp() {
@@ -426,8 +591,10 @@ void printHelp() {
   Serial.println(F("  h  : help"));
   Serial.println(F("  p  : print status"));
   Serial.println(F("  m  : print compact telemetry status"));
+  Serial.println(F("  n  : print signal diagnostics snapshot (input/output/gain activity)"));
+  Serial.println(F("  N  : reset signal diagnostics counters"));
   Serial.println(F("  x  : clear clip flags"));
-  Serial.println(F("  X  : clear clip flags + runtime counters + usage maxima"));
+  Serial.println(F("  X  : clear clip flags + runtime counters + signal diagnostics + usage maxima"));
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
   Serial.println(F("  0  : reload factory preset"));
@@ -446,8 +613,10 @@ void printHelp() {
   Serial.println(F("  y/Y: DC block -/+ 1 Hz"));
   Serial.println(F("  t  : toggle 400 Hz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
+  Serial.println(F("  k  : cycle tone channel mode BOTH -> LEFT -> RIGHT"));
   Serial.println(F("  Detector: stereo-linked peak detector (shared gain on L/R)."));
   Serial.println(F("  NOTE: calibration tone is mixed post-decoder into the output path."));
+  Serial.println(F("  NOTE: tone channel mode is an output routing test (not a decoder-input test)."));
   Serial.println();
 }
 
@@ -489,7 +658,72 @@ void printCompactTelemetryLine() {
   Serial.print(F(" memRes=")); Serial.print(memTight ? F("TIGHT") : F("OK"));
   Serial.print(F(" allocFail=")); Serial.print(ocx.getAllocFailCount());
   Serial.print(F(" inClip=")); Serial.print(ocx.getInputClipCount());
-  Serial.print(F(" outClip=")); Serial.println(ocx.getOutputClipCount());
+  Serial.print(F(" outClip=")); Serial.print(ocx.getOutputClipCount());
+  Serial.print(F(" bypass=")); Serial.print(ocx.getBypass() ? F("ON") : F("OFF"));
+  Serial.print(F(" gDb=")); Serial.print(ocx.getLastGainDb(), 2);
+  Serial.print(F(" envDb=")); Serial.print(ocx.getLastEnvDb(), 1);
+  Serial.print(F(" tone=")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
+  Serial.print(F("/")); Serial.println(toneChannelModeLabel(toneChannelMode));
+}
+
+void printSignalDiagnosticsSnapshot() {
+  const AudioEffectOCXType2DecodeStereo::DiagSnapshot d = ocx.getSignalDiagnosticsSnapshot();
+  Serial.println();
+  Serial.println(F("---- OCX SIGNAL DIAGNOSTICS ----"));
+  Serial.print(F("Snapshot bypass now: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
+  if (d.sampleCount == 0) {
+    Serial.println(F("No samples captured yet. Play signal first, then run snapshot again."));
+    Serial.println();
+    return;
+  }
+
+  const float n = (float)d.sampleCount;
+  const float inRmsL = sqrtf(d.inputSumSqL / n);
+  const float inRmsR = sqrtf(d.inputSumSqR / n);
+  const float outRmsL = sqrtf(d.outputSumSqL / n);
+  const float outRmsR = sqrtf(d.outputSumSqR / n);
+  const float inRmsMono = sqrtf(0.5f * (inRmsL * inRmsL + inRmsR * inRmsR));
+  const float outRmsMono = sqrtf(0.5f * (outRmsL * outRmsL + outRmsR * outRmsR));
+  const float inPeakMono = fmaxf(d.inputPeakL, d.inputPeakR);
+  const float outPeakMono = fmaxf(d.outputPeakL, d.outputPeakR);
+  const float deltaRmsDb = linToDb(outRmsMono) - linToDb(inRmsMono);
+  const float deltaPeakDb = linToDb(outPeakMono) - linToDb(inPeakMono);
+  const float inBalanceDb = linToDb(inRmsL) - linToDb(inRmsR);
+  const float outBalanceDb = linToDb(outRmsL) - linToDb(outRmsR);
+  const float decodeActivityPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.decoderActiveCount / (float)d.gainSampleCount) : 0.0f;
+  const float bypassPct = 100.0f * (float)d.bypassSampleCount / n;
+  const float decodedPct = 100.0f * (float)d.decodedSampleCount / n;
+
+  Serial.print(F("Samples: ")); Serial.println(d.sampleCount);
+  Serial.print(F("Path share during snapshot: bypass=")); Serial.print(bypassPct, 1);
+  Serial.print(F("% decoded=")); Serial.print(decodedPct, 1);
+  Serial.println(F("%"));
+  Serial.print(F("Tone state: ")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
+  Serial.print(F(" @ ")); Serial.print(calToneHz, 1); Serial.print(F(" Hz "));
+  Serial.print(calToneDb, 1); Serial.print(F(" dBFS mode=")); Serial.println(toneChannelModeLabel(toneChannelMode));
+
+  Serial.print(F("Input peak L/R: ")); Serial.print(d.inputPeakL, 4); Serial.print(F(" / ")); Serial.print(d.inputPeakR, 4);
+  Serial.print(F("  (mono ")); Serial.print(inPeakMono, 4); Serial.println(F(")"));
+  Serial.print(F("Input RMS  L/R: ")); Serial.print(inRmsL, 5); Serial.print(F(" / ")); Serial.print(inRmsR, 5);
+  Serial.print(F("  (mono ")); Serial.print(inRmsMono, 5); Serial.print(F(", ")); Serial.print(linToDb(inRmsMono), 1); Serial.println(F(" dBFS)"));
+  Serial.print(F("Input mean L/R: ")); Serial.print(d.inputMeanL, 6); Serial.print(F(" / ")); Serial.println(d.inputMeanR, 6);
+
+  Serial.print(F("Output peak L/R: ")); Serial.print(d.outputPeakL, 4); Serial.print(F(" / ")); Serial.print(d.outputPeakR, 4);
+  Serial.print(F("  (mono ")); Serial.print(outPeakMono, 4); Serial.println(F(")"));
+  Serial.print(F("Output RMS  L/R: ")); Serial.print(outRmsL, 5); Serial.print(F(" / ")); Serial.print(outRmsR, 5);
+  Serial.print(F("  (mono ")); Serial.print(outRmsMono, 5); Serial.print(F(", ")); Serial.print(linToDb(outRmsMono), 1); Serial.println(F(" dBFS)"));
+  Serial.print(F("Output mean L/R: ")); Serial.print(d.outputMeanL, 6); Serial.print(F(" / ")); Serial.println(d.outputMeanR, 6);
+
+  Serial.print(F("Delta RMS (out-in): ")); Serial.print(deltaRmsDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("Delta Peak(out-in): ")); Serial.print(deltaPeakDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("L/R balance in/out: ")); Serial.print(inBalanceDb, 2); Serial.print(F(" dB / ")); Serial.print(outBalanceDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("Detector env (last): ")); Serial.print(d.lastEnvDb, 2); Serial.println(F(" dBFS"));
+  Serial.print(F("Gain dB last/min/max/avg: ")); Serial.print(d.lastGainDb, 2); Serial.print(F(" / "));
+  Serial.print(d.minGainDb, 2); Serial.print(F(" / ")); Serial.print(d.maxGainDb, 2);
+  Serial.print(F(" / ")); Serial.println(d.avgGainDb, 2);
+  Serial.print(F("Decode activity (|gain|>=1 dB): ")); Serial.print(decodeActivityPct, 1);
+  Serial.println(F("% of decoded samples"));
+  Serial.println();
 }
 
 void printStatus() {
@@ -512,6 +746,7 @@ void printStatus() {
   Serial.print(F("Soft clip drive: ")); Serial.println(ocx.getSoftClipDrive(), 2);
   Serial.print(F("Tone: ")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
   Serial.print(F("  ")); Serial.print(calToneHz, 1); Serial.print(F(" Hz @ ")); Serial.print(calToneDb, 1); Serial.println(F(" dBFS"));
+  Serial.print(F("Tone channel mode: ")); Serial.println(toneChannelModeLabel(toneChannelMode));
   Serial.println(F("Tone routing: post-decoder output injection (for deck/workflow level calibration)."));
   Serial.print(F("Input clip seen: ")); Serial.println(ocx.hasInputClip() ? F("YES") : F("NO"));
   Serial.print(F("Output clip seen: ")); Serial.println(ocx.hasOutputClip() ? F("YES") : F("NO"));
@@ -528,8 +763,10 @@ void handleSerial() {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
       case 'm': printCompactTelemetryLine(); break;
+      case 'n': printSignalDiagnosticsSnapshot(); break;
+      case 'N': ocx.resetSignalDiagnostics(); break;
       case 'x': ocx.clearClipFlags(); break;
-      case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
+      case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); ocx.resetSignalDiagnostics(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case '0': applyFactoryPreset(); break;
@@ -562,6 +799,10 @@ void handleSerial() {
       case 't': calToneEnabled = !calToneEnabled; updateTone(); break;
       case 'z': calToneDb -= 1.0f; updateTone(); break;
       case 'Z': calToneDb += 1.0f; updateTone(); break;
+      case 'k':
+        toneChannelMode = (toneChannelMode == TONE_RIGHT) ? TONE_BOTH : (ToneChannelMode)((uint8_t)toneChannelMode + 1);
+        updateTone();
+        break;
       default: break;
     }
   }

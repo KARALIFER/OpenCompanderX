@@ -189,8 +189,11 @@ python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detecto
 Firmware-Kommandos:
 
 - `p` = voller Status
-- `m` = kompakter Telemetrie-Status
-- `X` = Clip-/Runtime-Counter und Usage-Max zurücksetzen
+- `m` = kompakter Telemetrie-Status (inkl. `bypass=ON/OFF`, letztem `gDb/envDb`, Tonstatus + L/R-Modus)
+- `n` = Signaldiagnose-Snapshot (Input/Output Peak+RMS+Mean, Gain/Env, Decode-Aktivität, In/Out-Delta, L/R-Balance)
+- `N` = Signaldiagnose-Counter gezielt zurücksetzen
+- `X` = Clip-/Runtime-Counter, Signaldiagnose und Usage-Max zurücksetzen
+- `k` = Testton-Kanalmodus zyklisch umschalten (`BOTH -> LEFT -> RIGHT`)
 - `0` = Factory-Preset neu laden
 
 Telemetrie-Bedeutung:
@@ -211,7 +214,8 @@ Empfohlener realer Hardware-Ablauf:
 5. Mit `m` zyklisch kompakten Status lesen, mit `p` Vollstatus prüfen.
 6. Bewertung: CPU-/Memory-Reserve OK, `allocFailCount == 0`, Clip-Zähler plausibel zu Eingangspegel/Headroom.
 
-Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` neben den Clip-/Alloc-Zählern.
+Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` neben den Clip-/Alloc-Zählern sowie klar sichtbarem `bypass=ON/OFF`.
+Der Snapshot `n` ist als Live-Diagnosefenster gedacht: `N` drücken, Material abspielen, `n` lesen und auf Basis von In/Out-Delta, Gain-Min/Max und Decode-Aktivität entscheiden.
 
 ## Testkassetten-Methodik
 

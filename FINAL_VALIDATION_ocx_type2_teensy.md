@@ -158,7 +158,8 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
    - `inputClipCount`/`outputClipCount` unauffällig?
 
 `m` liefert dafür eine kompakte Einzeile (`[TLM] ...`) ohne seriellen Spam im Audiopfad.
-Die Zeile enthält explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` für schnelle Laufzeit-Interpretation.
+Die Zeile enthält explizit `cpuRes=OK/TIGHT`, `memRes=OK/TIGHT`, `bypass=ON/OFF` sowie letzten Gain/Env für schnelle Laufzeit- und Decoder-Interpretation.
+Zusätzlich liefert `n` einen Signaldiagnose-Snapshot (Input/Output L/R, Peak/RMS/Mean, Gain-Min/Max, Decode-Aktivität, L/R-Balance), wobei der aktuelle Bypass-Status ausdrücklich ausgegeben wird.
 
 ## Profilentscheidungslogik
 
@@ -184,3 +185,10 @@ Finale Auswahl bleibt an 44.1-kHz-Ergebnissen gebunden; Low-Rate-Sweeps dienen n
 - Endgültige Bewertung bleibt hardware- und materialabhängig.
 - Black-Box-Demos ohne exakt dokumentierten Prozesspfad sind nur Hinweis, keine harte Kalibrierreferenz.
 - RMS-nahe Detector-Variante ist aktuell primär als Simulator-/Methodikwerkzeug bewertet; Firmwareseitige Aktivierung bleibt offen bis echte CPU-/Telemetry-Reserve auf Hardware geprüft ist.
+
+
+## Testton-Kanalmodus (L/R-Routingtest)
+
+Der 400-Hz-Kalibrierton bleibt **post-decoder** in den Ausgangsmix eingespeist.
+Mit `k` kann der Modus zwischen `BOTH`, `LEFT` und `RIGHT` umgeschaltet werden, um Kanalrouting, Vertauschung, Kanalverlust oder Pegeldifferenzen auf realer Hardware schnell zu prüfen.
+Dieser Modus ist ein Output-/Verdrahtungstest und **kein** Decoder-Eingangstest.
