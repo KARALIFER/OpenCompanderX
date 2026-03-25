@@ -759,6 +759,10 @@ def prepare_known_music_candidates(reference_root: Path, fs: int, search_root: P
     for item in KNOWN_MUSIC_CANDIDATES:
         src_path = search_root / str(item["filename"])
         if not src_path.exists():
+            found = sorted(search_root.glob(f"**/{item['filename']}"))
+            if found:
+                src_path = found[0]
+        if not src_path.exists():
             missing.append(str(src_path))
             continue
         try:
@@ -822,13 +826,13 @@ def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dic
             ref_decode = encoded.with_name(f"{base}_reference_decode.wav")
             enc_fs, enc_audio = read_audio(encoded)
             src_fs, src_audio = read_audio(source)
-            if enc_fs != fs or src_fs != fs:
-                continue
+            enc_audio = resample_audio_linear(enc_audio, enc_fs, fs)
+            src_audio = resample_audio_linear(src_audio, src_fs, fs)
             metadata = load_reference_metadata(base, encoded)
             case_name = f"ref_{base}"
             spec: dict[str, object] = {
-                "input": ensure_stereo(enc_audio),
-                "source_target": ensure_stereo(src_audio),
+                "input": enc_audio,
+                "source_target": src_audio,
                 "group": "cassette_reference",
                 "reference_layout": "pair_encoded_source",
                 "reference_case_base": base,
@@ -839,11 +843,13 @@ def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dic
                 "notes": str(metadata.get("notes", "")),
                 "trust_level": str(metadata.get("trust_level", "unknown")),
                 "category": str(metadata.get("category", "cassette_reference")),
+                "source_sample_rate_hz": int(src_fs),
+                "encoded_sample_rate_hz": int(enc_fs),
+                "prepared_sample_rate_hz": int(fs),
             }
             if ref_decode.exists():
                 ref_fs, ref_audio = read_audio(ref_decode)
-                if ref_fs == fs:
-                    spec["reference_decode"] = ensure_stereo(ref_audio)
+                spec["reference_decode"] = resample_audio_linear(ref_audio, ref_fs, fs)
             specs[case_name] = spec
         for encoded in sorted(root.glob("*_encoded.wav")):
             base = re.sub(r"_encoded$", "", encoded.stem)
@@ -851,14 +857,13 @@ def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dic
             if source.exists():
                 continue
             enc_fs, enc_audio = read_audio(encoded)
-            if enc_fs != fs:
-                continue
+            enc_audio = resample_audio_linear(enc_audio, enc_fs, fs)
             metadata = load_reference_metadata(base, encoded)
             if not bool(metadata.get("encoded_candidate_only", False)):
                 continue
             case_name = f"cand_{base}"
             specs[case_name] = {
-                "input": ensure_stereo(enc_audio),
+                "input": enc_audio,
                 "group": "cassette_music_candidate",
                 "reference_layout": "encoded_only_candidate",
                 "reference_case_base": base,
@@ -869,6 +874,8 @@ def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dic
                 "notes": str(metadata.get("notes", "")),
                 "trust_level": str(metadata.get("trust_level", "candidate_only")),
                 "category": str(metadata.get("category", "cassette_music_candidate")),
+                "encoded_sample_rate_hz": int(enc_fs),
+                "prepared_sample_rate_hz": int(fs),
             }
     return specs
 

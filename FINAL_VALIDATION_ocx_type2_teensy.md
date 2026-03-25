@@ -52,6 +52,8 @@ Hinweis zu den zwei bekannten Kandidaten:
 
 - `musik_enc.wav` wird bei Import auf 44.1 kHz normalisiert und als praxisnaher encoded Kandidat geführt, solange Herkunft/Encoderpfad nicht belegt ist.
 - `musicfox_shopping_street.mp3` bleibt Zusatz-/Stressmaterial (verlustbehaftet, nicht Primärreferenz).
+- Der Kandidatenimport sucht Dateien auch rekursiv im gewählten Suchpfad, falls sie nicht direkt im Repo-Root liegen.
+- Referenzfälle mit abweichender Samplerate werden für den Offline-Lauf auf die Profilrate (typisch 44.1 kHz) resampelt; Originaldateien werden dabei nicht überschrieben.
 
 ## A) Referenzlose Bewertung (Plausibilität/Stabilität)
 

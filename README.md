@@ -128,8 +128,11 @@ Bekannte bereitgestellte Kandidaten können separat importiert werden:
 
 - `musik_enc.wav` (wenn vorhanden): wird für den Offline-Pfad auf 44.1 kHz resampelt und als `encoded_candidate_only` geführt.
 - `musicfox_shopping_street.mp3` (wenn decodierbar): wird ebenfalls auf 44.1 kHz gebracht, aber nur als Zusatz-/Stressfall geführt.
+- Der Import sucht diese Dateien zuerst im angegebenen Suchpfad und zusätzlich rekursiv darunter, falls sie nicht im Root liegen.
 
 Beide Fälle gelten ohne dokumentierten Encoder-/Lizenzpfad **nicht** als harte Goldreferenz.
+
+Referenzpaare `*_encoded.wav` + `*_source.wav` werden im Harness bei Bedarf ebenfalls auf die Zielrate des Profils (44.1 kHz) normalisiert, damit gemischte Quell-Sampleraten den Lauf nicht blockieren. Die Originaldateien bleiben unverändert.
 
 ## Lokale Checks
 
