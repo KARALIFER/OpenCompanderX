@@ -36,12 +36,23 @@ Bewertet werden u. a.:
 Nicht als Primärziel: maximale Input-Ähnlichkeit.
 Zusätzlich wird eine zu schwache Dekodierwirkung (Under-Decoding) explizit bestraft, damit „Input fast unverändert“ nicht trivial gewinnt.
 
+Neu im cassette-primary Fokus:
+
+- feste Ton-/Pegelmatrix (400 Hz, 1 kHz, 3.15 kHz, 10 kHz; mehrere Pegel),
+- gruppierte Fallklassen (`tone_level_matrix`, `music_dynamic`, `broadband`),
+- bandbegrenzte Spektralmetriken (low/mid/high) zusätzlich zur globalen Spektralabweichung,
+- Peak-Overshoot/Undershoot-Metriken für Burst-/Transienten-Sensitivität.
+
 ## B) Referenzvergleich (optional)
 
 Wenn Referenzdateien vorhanden sind:
 
 - Längenabgleich auf gemeinsame Mindestlänge
-- getrennte Referenzmetriken (`*_vs_reference`)
+- cassette-primary Layout mit optionaler Dreierkette:
+  - `<case>_source.wav`
+  - `<case>_encoded.wav`
+  - `<case>_reference_decode.wav` (optional)
+- getrennte Referenzmetriken (`*_vs_reference`) plus explizite `reference_mode`-Kennung pro Fall
 - separater Referenzscore zusätzlich zum Plausibilitätsscore
 
 Ohne Referenzdateien wird keine Referenznähe behauptet.
@@ -124,6 +135,8 @@ Finale Auswahl bleibt an 44.1-kHz-Ergebnissen gebunden; Low-Rate-Sweeps dienen n
 ## Grenzen / offene Unsicherheiten
 
 - Keine Bitexact-/Originalgleich-/Referenzgleich-Claims ohne harte Messkette.
+- Aktueller Stand ist als robuste, Type-II-orientierte Decoder-Annäherung bewertet, aber nicht als vollständig standardgenau historisch verifiziert.
+- Cassette-vs-Disc-Trennung bleibt bewusst konservativ: keine unbelegte Übernahme disc-spezifischer LF-Kompensationen als Default.
 - Endgültige Bewertung bleibt hardware- und materialabhängig.
 - Black-Box-Demos ohne exakt dokumentierten Prozesspfad sind nur Hinweis, keine harte Kalibrierreferenz.
 - RMS-nahe Detector-Variante ist aktuell primär als Simulator-/Methodikwerkzeug bewertet; Firmwareseitige Aktivierung bleibt offen bis echte CPU-/Telemetry-Reserve auf Hardware geprüft ist.

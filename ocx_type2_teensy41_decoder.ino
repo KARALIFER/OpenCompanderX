@@ -438,7 +438,7 @@ void printHelp() {
   Serial.println(F("  d/D: de-emphasis freq -/+ 50 Hz"));
   Serial.println(F("  g/G: headroom -/+ 0.5 dB"));
   Serial.println(F("  y/Y: DC block -/+ 1 Hz"));
-  Serial.println(F("  t  : toggle 1 kHz calibration tone"));
+  Serial.println(F("  t  : toggle 400 Hz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
   Serial.println();
 }

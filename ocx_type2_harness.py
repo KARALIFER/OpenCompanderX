@@ -53,6 +53,34 @@ def spectral_delta_db(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(mag_b - mag_a))))
 
 
+def spectral_band_delta_db(
+    a: np.ndarray,
+    b: np.ndarray,
+    fs: int,
+    bands: tuple[tuple[float, float], ...] = ((20.0, 200.0), (200.0, 4000.0), (4000.0, 16000.0)),
+) -> dict[str, float]:
+    a_mono = np.mean(a, axis=1)
+    b_mono = np.mean(b, axis=1)
+    n = min(len(a_mono), len(b_mono))
+    if n == 0:
+        return {"low": 0.0, "mid": 0.0, "high": 0.0}
+    a_mono = a_mono[:n]
+    b_mono = b_mono[:n]
+    window = np.hanning(n)
+    freqs = np.fft.rfftfreq(n, 1.0 / fs)
+    A = 20.0 * np.log10(np.maximum(np.abs(np.fft.rfft(a_mono * window)), 1.0e-12))
+    B = 20.0 * np.log10(np.maximum(np.abs(np.fft.rfft(b_mono * window)), 1.0e-12))
+    keys = ("low", "mid", "high")
+    out: dict[str, float] = {}
+    for key, (lo, hi) in zip(keys, bands):
+        mask = (freqs >= lo) & (freqs < hi)
+        if not np.any(mask):
+            out[key] = 0.0
+        else:
+            out[key] = float(np.sqrt(np.mean(np.square(B[mask] - A[mask]))))
+    return out
+
+
 def transient_delta(a: np.ndarray, b: np.ndarray) -> float:
     n = min(len(a), len(b))
     if n == 0:
@@ -134,7 +162,7 @@ def align_lengths(*arrays: np.ndarray | None) -> list[np.ndarray | None]:
     return aligned
 
 
-def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> dict[str, float | int | None]:
+def compare(inp: np.ndarray, out: np.ndarray, fs: int, ref: np.ndarray | None = None) -> dict[str, float | int | None]:
     inp = ensure_stereo(inp)
     out = ensure_stereo(out)
     inp_a, out_a, ref_a = align_lengths(inp, out, ref)
@@ -145,6 +173,7 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
     input_rms = float(np.sqrt(np.mean(np.square(inp_a))))
     output_rms = float(np.sqrt(np.mean(np.square(out_a))))
     residual_rms = float(np.sqrt(np.mean(np.square(residual))))
+    band_delta = spectral_band_delta_db(inp_a, out_a, fs)
     metrics: dict[str, float | int | None] = {
         "residual_rms": residual_rms,
         "input_rms": input_rms,
@@ -156,7 +185,12 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
         "max_abs_error": float(np.max(np.abs(residual))),
         "correlation": correlation(inp_a, out_a),
         "freq_response_delta_db": spectral_delta_db(inp_a, out_a),
+        "freq_response_delta_low_db": band_delta["low"],
+        "freq_response_delta_mid_db": band_delta["mid"],
+        "freq_response_delta_high_db": band_delta["high"],
         "transient_delta": transient_delta(inp_a, out_a),
+        "overshoot_peak_delta": float(np.max(out_a) - np.max(inp_a)),
+        "undershoot_peak_delta": float(np.min(out_a) - np.min(inp_a)),
         "channel_deviation_rms": float(np.sqrt(np.mean(np.square(out_a[:, 0] - out_a[:, 1])))),
         "soft_clip_dependency": softclip_dependency(inp_a, out_a),
         "reference_samples_used": int(len(inp_a)) if ref_a is not None else 0,
@@ -165,6 +199,7 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
     if ref_a is not None:
         assert ref_a is not None
         diff = out_a - ref_a
+        ref_band_delta = spectral_band_delta_db(out_a, ref_a, fs)
         metrics.update(
             {
                 "mse_vs_reference": float(np.mean(np.square(diff))),
@@ -173,6 +208,9 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
                 "correlation_vs_reference": correlation(out_a, ref_a),
                 "null_residual_rms_vs_reference": float(np.sqrt(np.mean(np.square(diff)))),
                 "freq_response_delta_db_vs_reference": spectral_delta_db(out_a, ref_a),
+                "freq_response_delta_low_db_vs_reference": ref_band_delta["low"],
+                "freq_response_delta_mid_db_vs_reference": ref_band_delta["mid"],
+                "freq_response_delta_high_db_vs_reference": ref_band_delta["high"],
                 "transient_delta_vs_reference": transient_delta(out_a, ref_a),
             }
         )
@@ -185,6 +223,9 @@ def compare(inp: np.ndarray, out: np.ndarray, ref: np.ndarray | None = None) -> 
                 "correlation_vs_reference": None,
                 "null_residual_rms_vs_reference": None,
                 "freq_response_delta_db_vs_reference": None,
+                "freq_response_delta_low_db_vs_reference": None,
+                "freq_response_delta_mid_db_vs_reference": None,
+                "freq_response_delta_high_db_vs_reference": None,
                 "transient_delta_vs_reference": None,
             }
         )
@@ -198,7 +239,12 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
     gain_jump_penalty = 8.0 * max(0.0, float(row["gain_curve_diff_p95_db"]) - 2.5)
     breathing_penalty = 4.0 * max(0.0, float(row["gain_curve_diff_std_db"]) - 1.2)
     spectral_penalty = 2.0 * max(0.0, float(row["freq_response_delta_db"]) - 5.5)
+    spectral_penalty += 1.2 * max(0.0, float(row["freq_response_delta_low_db"]) - 6.0)
+    spectral_penalty += 1.2 * max(0.0, float(row["freq_response_delta_mid_db"]) - 6.0)
+    spectral_penalty += 1.2 * max(0.0, float(row["freq_response_delta_high_db"]) - 7.0)
     transient_penalty = 16.0 * max(0.0, float(row["transient_delta"]) - 0.25)
+    overshoot_penalty = 20.0 * max(0.0, abs(float(row["overshoot_peak_delta"])) - 0.18)
+    undershoot_penalty = 20.0 * max(0.0, abs(float(row["undershoot_peak_delta"])) - 0.18)
     softclip_penalty = 10.0 * float(row["soft_clip_dependency"])
     under_decode_penalty = 0.0
     if float(row["input_rms"]) > 0.015:
@@ -220,6 +266,8 @@ def _case_plausibility_penalty(row: dict[str, float | bool | int | None]) -> flo
         + breathing_penalty
         + spectral_penalty
         + transient_penalty
+        + overshoot_penalty
+        + undershoot_penalty
         + softclip_penalty
         + under_decode_penalty
         + level_span_penalty
@@ -242,6 +290,9 @@ def evaluate_scores(metrics: list[dict[str, float | bool | int | None]]) -> dict
             reference_score += 100.0
             reference_score -= 1000.0 * float(row["mse_vs_reference"])
             reference_score -= 1.7 * float(row["freq_response_delta_db_vs_reference"])
+            reference_score -= 0.8 * float(row["freq_response_delta_low_db_vs_reference"])
+            reference_score -= 0.8 * float(row["freq_response_delta_mid_db_vs_reference"])
+            reference_score -= 1.0 * float(row["freq_response_delta_high_db_vs_reference"])
             reference_score -= 7.0 * float(row["transient_delta_vs_reference"])
             reference_score -= 45.0 * max(0.0, 0.90 - float(row["correlation_vs_reference"]))
 
@@ -341,6 +392,20 @@ def music_like(fs: int, seconds: float) -> np.ndarray:
     ) * (0.6 + 0.4 * np.sin(2.0 * np.pi * 0.7 * t) ** 2)
 
 
+def music_like_dense(fs: int, seconds: float) -> np.ndarray:
+    t = np.arange(int(fs * seconds)) / fs
+    harmonics = (
+        0.22 * np.sin(2.0 * np.pi * 82.41 * t)
+        + 0.16 * np.sin(2.0 * np.pi * 164.81 * t)
+        + 0.12 * np.sin(2.0 * np.pi * 329.63 * t)
+        + 0.09 * np.sin(2.0 * np.pi * 659.25 * t)
+        + 0.05 * np.sin(2.0 * np.pi * 2637.02 * t)
+        + 0.04 * np.sin(2.0 * np.pi * 5274.04 * t)
+    )
+    envelope = 0.45 + 0.35 * np.sin(2.0 * np.pi * 0.45 * t) ** 2 + 0.20 * np.sin(2.0 * np.pi * 2.3 * t) ** 2
+    return np.clip(harmonics * envelope, -1.0, 1.0)
+
+
 def hf_burst_train(fs: int, seconds: float) -> np.ndarray:
     n = int(fs * seconds)
     out = np.zeros(n)
@@ -380,12 +445,26 @@ def fast_level_switches(fs: int, seconds: float) -> np.ndarray:
     return out
 
 
+def tone_level_matrix_cases(
+    fs: int,
+    seconds: float = 2.0,
+    freqs_hz: tuple[float, ...] = (400.0, 1000.0, 3150.0, 10000.0),
+    levels_db: tuple[float, ...] = (-30.0, -20.0, -12.0, -6.0),
+) -> dict[str, np.ndarray]:
+    cases: dict[str, np.ndarray] = {}
+    for f in freqs_hz:
+        for lv in levels_db:
+            name = f"tone_{int(round(f))}hz_{str(int(round(lv))).replace('-', 'm')}db"
+            cases[name] = ensure_stereo(tone(fs, seconds, f, lv))
+    return cases
+
+
 def build_cases(fs: int) -> dict[str, np.ndarray]:
     rng = np.random.default_rng(1234)
     silence = np.zeros(int(fs * 3.0))
     base = tone(fs, 3.0, 1000.0, -12.0)
     mismatch = np.column_stack([tone(fs, 3.0, 1000.0, -12.0), tone(fs, 3.0, 1300.0, -18.0)])
-    return {
+    out = {
         "silence": ensure_stereo(silence),
         "sine_-24db": ensure_stereo(tone(fs, 3.0, 1000.0, -24.0)),
         "sine_-12db": ensure_stereo(base),
@@ -404,11 +483,26 @@ def build_cases(fs: int) -> dict[str, np.ndarray]:
         "too_hot": ensure_stereo(np.clip(tone(fs, 3.0, 1000.0, -1.0) * 1.2, -1.0, 1.0)),
         "dc_rumble": ensure_stereo(rumble(fs, 4.0)),
         "music_like": ensure_stereo(music_like(fs, 4.0)),
+        "music_like_dense": ensure_stereo(music_like_dense(fs, 4.0)),
         "hf_burst_train": ensure_stereo(hf_burst_train(fs, 3.0)),
         "bass_plus_hf": ensure_stereo(bass_plus_hf(fs, 4.0)),
         "transient_train": ensure_stereo(transient_train(fs, 3.0)),
         "fast_level_switches": ensure_stereo(fast_level_switches(fs, 3.0)),
     }
+    out.update(tone_level_matrix_cases(fs))
+    return out
+
+
+def case_group(case_name: str) -> str:
+    if case_name.startswith("tone_") and "hz_" in case_name and case_name.endswith("db"):
+        return "tone_level_matrix"
+    if case_name in {"music_like", "music_like_dense", "bass_plus_hf", "hf_burst_train", "transient_train", "fast_level_switches", "bursts", "envelope_steps"}:
+        return "music_dynamic"
+    if case_name in {"pink_noise", "white_noise", "log_sweep"}:
+        return "broadband"
+    if case_name in {"bass_heavy", "treble_heavy", "dc_rumble"}:
+        return "spectral_extremes"
+    return "general"
 
 
 
@@ -425,6 +519,9 @@ def select_tuning_cases(cases: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         "hf_burst_train",
         "transient_train",
         "fast_level_switches",
+        "tone_400hz_m12db",
+        "tone_3150hz_m12db",
+        "tone_10000hz_m12db",
     ]
     return {k: cases[k] for k in preferred if k in cases}
 
@@ -438,16 +535,29 @@ def parse_override_pairs(values: list[str]) -> dict[str, float]:
     return out
 
 
-def load_reference(reference_dir: Path | None, case_name: str, fs: int) -> np.ndarray | None:
-    if reference_dir is None:
+def _load_wav_if_exists(path: Path, fs: int) -> np.ndarray | None:
+    if not path.exists():
         return None
-    ref_path = reference_dir / f"{case_name}.wav"
-    if not ref_path.exists():
-        return None
-    ref_fs, ref_audio = read_audio(ref_path)
+    ref_fs, ref_audio = read_audio(path)
     if ref_fs != fs:
         return None
     return ref_audio
+
+
+def load_reference_bundle(reference_dir: Path | None, case_name: str, fs: int) -> dict[str, np.ndarray | None]:
+    if reference_dir is None:
+        return {"source": None, "encoded": None, "reference_decode": None}
+
+    roots = [reference_dir, reference_dir / "type2_cassette"]
+    for root in roots:
+        source = _load_wav_if_exists(root / f"{case_name}_source.wav", fs)
+        encoded = _load_wav_if_exists(root / f"{case_name}_encoded.wav", fs)
+        reference_decode = _load_wav_if_exists(root / f"{case_name}_reference_decode.wav", fs)
+        if source is not None or encoded is not None or reference_decode is not None:
+            return {"source": source, "encoded": encoded, "reference_decode": reference_decode}
+
+    legacy = _load_wav_if_exists(reference_dir / f"{case_name}.wav", fs)
+    return {"source": None, "encoded": None, "reference_decode": legacy}
 
 
 def evaluate_candidate(
@@ -461,20 +571,47 @@ def evaluate_candidate(
     params = Params.from_profile(profile_path, **overrides)
     rows: list[dict[str, float | bool | int | None | str]] = []
     for name, inp in cases.items():
+        ref_bundle = load_reference_bundle(reference_dir, name, fs)
+        encoded = ref_bundle["encoded"]
+        source = ref_bundle["source"]
+        reference_decode = ref_bundle["reference_decode"]
+        inp_eval = encoded if encoded is not None else inp
+        ref_target = reference_decode if reference_decode is not None else source
         decoder = Decoder(fs, params)
-        out = decoder.process(inp)
-        ref = load_reference(reference_dir, name, fs)
+        out = decoder.process(inp_eval)
         row: dict[str, float | bool | int | None | str] = {
             "case": name,
-            **{f"input_{k}": v for k, v in summarize_signal("input", inp).items() if k != "name"},
+            "case_group": case_group(name),
+            "reference_source_available": source is not None,
+            "reference_encoded_available": encoded is not None,
+            "reference_decode_available": reference_decode is not None,
+            **{f"input_{k}": v for k, v in summarize_signal("input", inp_eval).items() if k != "name"},
             **{f"output_{k}": v for k, v in summarize_signal("output", out).items() if k != "name"},
-            **compare(inp, out, ref),
+            **compare(inp_eval, out, fs, ref_target),
             "input_clip_l": bool(decoder.input_clip[0]),
             "input_clip_r": bool(decoder.input_clip[1]),
             "output_clip_l": bool(decoder.output_clip[0]),
             "output_clip_r": bool(decoder.output_clip[1]),
-            "reference_available": ref is not None,
+            "reference_available": ref_target is not None,
+            "reference_mode": (
+                "encoded_to_reference_decode"
+                if encoded is not None and reference_decode is not None
+                else "encoded_to_source"
+                if encoded is not None and source is not None
+                else "output_to_reference_decode"
+                if reference_decode is not None
+                else "output_to_source"
+                if source is not None
+                else "none"
+            ),
         }
+        if source is not None:
+            source_cmp = compare(out, source, fs, None)
+            row["mse_vs_source"] = source_cmp["mse"]
+            row["correlation_vs_source"] = source_cmp["correlation"]
+        else:
+            row["mse_vs_source"] = None
+            row["correlation_vs_source"] = None
         rows.append(row)
     return rows
 
@@ -548,6 +685,25 @@ def run_detector_study(profile_path: Path, fs: int) -> dict[str, object]:
     }
 
 
+def summarize_by_group(rows: list[dict[str, float | bool | int | None | str]]) -> dict[str, dict[str, float | int]]:
+    grouped: dict[str, list[dict[str, float | bool | int | None]]] = {}
+    for row in rows:
+        group = str(row.get("case_group", "general"))
+        grouped.setdefault(group, []).append(dict(row))
+
+    summary: dict[str, dict[str, float | int]] = {}
+    for group, items in grouped.items():
+        score = evaluate_scores(items)
+        summary[group] = {
+            "cases": len(items),
+            "score_total": float(score["score_total"]),
+            "score_plausibility": float(score["score_plausibility"]),
+            "score_reference": float(score["score_reference"]),
+            "reference_cases": int(sum(1 for x in items if bool(x.get("reference_available", False)))),
+        }
+    return summary
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
@@ -585,6 +741,8 @@ def main() -> None:
         "cases": len(results),
         "overrides": user_overrides,
         "reference_cases": int(sum(1 for row in results if bool(row["reference_available"]))),
+        "case_groups": summarize_by_group(results),
+        "cassette_primary_note": "tone_level_matrix + music_dynamic + broadband are the primary offline cassette-oriented groups.",
     }
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     try:

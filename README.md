@@ -104,6 +104,15 @@ Für Black-Box-Referenzvergleich gilt:
 - Ohne Referenz wird **keine** Referenznähe behauptet.
 - Optionale Hilfen wie Play Trim, Azimuth-Korrektur, Gap-Loss-Kompensation oder EQ-Konvertierung (IEC 120 µs <-> 70 µs) gelten als Referenzpfad-Hilfen, nicht als implizite OCX-Kernlogik.
 
+## Cassette-Primary Offline-Pfad (neu geschärft)
+
+Der Harness priorisiert jetzt einen expliziten **cassette-primary** Prüfpfad:
+
+- **Ton-/Pegelmatrix:** 400 Hz, 1 kHz, 3.15 kHz, 10 kHz über mehrere Pegel (`-30/-20/-12/-6 dBFS`) für Tracking über Frequenz und Pegel.
+- **Musik-/Dynamikfälle:** Bursts, Envelope-Steps, HF-Burst-Train, Transient-Train, Fast-Level-Switches, Bass+HF, `music_like`, `music_like_dense`.
+- **Breitbandfälle:** Pink/White Noise, Log-Sweep.
+- **Gruppierte Auswertung:** `summary.json` enthält jetzt `case_groups` plus Hinweis auf den cassette-primary Schwerpunkt.
+
 ## Lokale Checks
 
 ```bash
@@ -120,8 +129,8 @@ pio run -e teensy41
 # Standard-Offline-Bewertung
 python ocx_type2_harness.py --out-dir artifacts/harness
 
-# Optional: Referenzmaterial (name.wav pro Harness-Case)
-python ocx_type2_harness.py --out-dir artifacts/harness_ref --reference-dir refs/type2
+# Optional: Referenzmaterial (legacy oder cassette-primary layout)
+python ocx_type2_harness.py --out-dir artifacts/harness_ref --reference-dir refs
 
 # Decoder-Overrides
 python ocx_type2_harness.py --override strength=0.80 --override release_ms=160
@@ -132,6 +141,25 @@ python ocx_type2_harness.py --tune --tune-fs 4000 --tune-final-fs 44100 --tune-t
 # Detector-Methodikvergleich (energy vs. RMS-näher)
 python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detector
 ```
+
+## Referenzlayout für dbx-Type-II-Cassette (empfohlen)
+
+Empfohlene Struktur unter `--reference-dir`:
+
+```text
+refs/
+  type2_cassette/
+    <case>_source.wav
+    <case>_encoded.wav
+    <case>_reference_decode.wav   # optional
+```
+
+Interpretation:
+
+- Mit `<case>_encoded.wav` wird dieses Signal als Decoder-Eingang verwendet (cassette-primary).
+- Vergleichsziel ist bevorzugt `<case>_reference_decode.wav`, sonst `<case>_source.wav`.
+- Teilabdeckung ist erlaubt; fehlende Fälle bleiben synthetisch.
+- Legacy-Fallback `<case>.wav` wird weiterhin unterstützt.
 
 ## Hardware-Telemetrie und Auswertung
 
@@ -172,3 +200,11 @@ Die kompakte `m`-Zeile enthält dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK
 ## Claims
 
 Dieses Projekt macht **keine** Bit-Exact-/Originalgleich-/Referenzgleich-Behauptung ohne harten Messbeleg.
+
+## Ehrlicher Kompatibilitätsstatus (dbx Type II Cassette)
+
+- Ziel bleibt maximale praktische Decoder-Kompatibilität für reale Type-II-Kassetten im genannten Hardware-Setup.
+- Der aktuelle Stand ist ein methodisch abgestimmter, stabiler Decoderpfad mit Type-II-orientierter Ballistik/Sidechain-Formung,
+  aber **nicht** als historisch standardgenauer dbx-Type-II-Decoder belegt.
+- Disc-spezifische Annahmen (z. B. implizite LF-Roll-off-Übernahmen) werden nicht stillschweigend als Cassette-Default übernommen.
+- Offene Restabweichungen werden über Harness- und Hardware-Messungen geführt, nicht durch Gleichheits-Claims kaschiert.

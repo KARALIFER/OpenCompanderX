@@ -6,13 +6,23 @@ from pathlib import Path
 
 import json
 import numpy as np
+import soundfile as sf
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ocx_type2_harness as harness_module
-from ocx_type2_harness import build_cases, compare, evaluate_scores, run_detector_study, run_tuning
+from ocx_type2_harness import (
+    build_cases,
+    case_group,
+    compare,
+    evaluate_candidate,
+    evaluate_scores,
+    load_reference_bundle,
+    run_detector_study,
+    run_tuning,
+)
 from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params, ensure_stereo
 
 
@@ -102,7 +112,7 @@ def test_compare_handles_reference_length_mismatch_without_crash():
     audio = build_cases(fs)["music_like"]
     out = Decoder(fs, params).process(audio)
     short_ref = out[: len(out) // 2]
-    metrics = compare(audio, out, short_ref)
+    metrics = compare(audio, out, fs, short_ref)
     assert metrics["mse_vs_reference"] is not None
     assert np.isfinite(metrics["mse_vs_reference"])
     assert int(metrics["reference_samples_used"]) == len(short_ref)
@@ -118,7 +128,12 @@ def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is
         "gain_curve_diff_p95_db": 2.2,
         "gain_curve_diff_std_db": 1.1,
         "freq_response_delta_db": 5.0,
+        "freq_response_delta_low_db": 4.0,
+        "freq_response_delta_mid_db": 5.0,
+        "freq_response_delta_high_db": 6.0,
         "transient_delta": 0.2,
+        "overshoot_peak_delta": 0.01,
+        "undershoot_peak_delta": -0.01,
         "soft_clip_dependency": 0.0,
         "gain_curve_mean_db": -1.0,
         "input_level_span_db": 18.0,
@@ -126,6 +141,9 @@ def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is
         "gain_vs_input_r2": 0.8,
         "mse_vs_reference": None,
         "freq_response_delta_db_vs_reference": None,
+        "freq_response_delta_low_db_vs_reference": None,
+        "freq_response_delta_mid_db_vs_reference": None,
+        "freq_response_delta_high_db_vs_reference": None,
         "transient_delta_vs_reference": None,
         "correlation_vs_reference": None,
         "reference_available": False,
@@ -262,3 +280,60 @@ def test_profile_and_firmware_defaults_are_synced():
         assert match is not None, key
         actual = float(match.group(1))
         assert actual == float(expected), key
+
+
+def test_calibration_tone_level_and_decoder_reference_remain_separate():
+    profile = json.loads(PROFILE_PATH.read_text())
+    tone_dbfs = float(profile["tone"]["level_dbfs"])
+    reference_db = float(profile["decoder"]["reference_db"])
+    assert tone_dbfs != reference_db
+
+
+def test_help_text_mentions_400hz_calibration_tone():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "toggle 400 Hz calibration tone" in ino
+
+
+def test_tone_level_matrix_contains_required_frequencies():
+    keys = build_cases(4000).keys()
+    required = [
+        "tone_400hz_m12db",
+        "tone_1000hz_m12db",
+        "tone_3150hz_m12db",
+        "tone_10000hz_m12db",
+    ]
+    for name in required:
+        assert name in keys
+        assert case_group(name) == "tone_level_matrix"
+
+
+def test_reference_bundle_discovery_supports_type2_cassette_layout(tmp_path):
+    fs = 4000
+    ref_dir = tmp_path / "refs" / "type2_cassette"
+    ref_dir.mkdir(parents=True)
+    audio = np.zeros((64, 2), dtype=np.float64)
+    sf.write(ref_dir / "demo_source.wav", audio, fs)
+    sf.write(ref_dir / "demo_encoded.wav", audio, fs)
+    sf.write(ref_dir / "demo_reference_decode.wav", audio, fs)
+
+    bundle = load_reference_bundle(tmp_path / "refs", "demo", fs)
+    assert bundle["source"] is not None
+    assert bundle["encoded"] is not None
+    assert bundle["reference_decode"] is not None
+
+
+def test_evaluate_candidate_handles_partial_reference_coverage(tmp_path):
+    fs = 4000
+    ref_dir = tmp_path / "refs" / "type2_cassette"
+    ref_dir.mkdir(parents=True)
+    encoded = np.full((128, 2), 0.02, dtype=np.float64)
+    source = np.full((128, 2), 0.01, dtype=np.float64)
+    sf.write(ref_dir / "tone_400hz_m12db_encoded.wav", encoded, fs)
+    sf.write(ref_dir / "tone_400hz_m12db_source.wav", source, fs)
+
+    cases = {"tone_400hz_m12db": build_cases(fs)["tone_400hz_m12db"], "music_like": build_cases(fs)["music_like"]}
+    rows = evaluate_candidate(PROFILE_PATH, fs, cases, reference_dir=tmp_path / "refs")
+    by_name = {str(r["case"]): r for r in rows}
+    assert by_name["tone_400hz_m12db"]["reference_mode"] == "encoded_to_source"
+    assert by_name["tone_400hz_m12db"]["reference_available"] is True
+    assert by_name["music_like"]["reference_available"] is False
