@@ -1,50 +1,50 @@
 # OpenCompanderX / OCX Type 2
 
-Dieses Repository enthält einen robusten **Type-II-Compander-Decoder** für eine fest definierte Zielhardware:
+This repository contains a robust **Type-II compander decoder** for a fixed target hardware platform:
 
 - Teensy 4.1
 - Teensy Audio Adaptor Rev D/D2 (SGTL5000)
-- Stereo analog Line-In zu Stereo analog Line-Out/Headphone
+- Stereo analog Line-In to stereo analog Line-Out/Headphone
 
-## Aktueller, reproduzierbarer Stand
+## Current, reproducible status
 
-Der derzeit im Repository nachvollziehbare Stand umfasst:
+The current state verifiable in the repository includes:
 
-- Die Firmware kompiliert mit PlatformIO für `teensy41`.
-- Der Firmware-Decoderpfad arbeitet explizit **stereo-gekoppelt**: ein gemeinsamer Detector auf Basis von `max(L/R)` der Sidechain-Power sowie gemeinsamer Gain. Dadurch wird Stereo-Image-Wander bei asymmetrischem Material reduziert.
-- Die Output-Finalisierung ist zentralisiert (`finalizeOutput`): Output-Trim, Headroom, Softclip und Clip-Zählung laufen konsistent über Decode- und Bypass-Pfad.
-- Ein Offline-Simulator für WAV-Dateien ist vorhanden.
-- Der Harness trennt explizit zwischen:
-  - **referenzloser Stabilitäts- und Plausibilitätsbewertung** (Clipping, Kanalabweichung, Ballistik-/Pump-Indikatoren, spektrale Verfärbung, Transientenverlust, Soft-Clip-Abhängigkeit)
-  - **optionalem Referenzvergleich** (nur bei vorhandenen echten Referenzdateien)
-- Die referenzlose Score-Logik bewertet zusätzlich die **Pegel-Tracking-Plausibilität** über Gain-vs-Input-Slope/R² und gewichtet zu flaches oder unplausibles Tracking negativ.
-- Das Tuning erfolgt über eine **zweistufige Suche**: schnelle Grobselektion (z. B. 4 kHz) und finales Re-Ranking bei **44.1 kHz**.
-- Der Simulator kann zusätzlich einen **RMS-näheren Detectorpfad** (`detector_mode=rms`) mit dem bisherigen energy-nahen Pfad vergleichen.
-- Der Harness enthält einen expliziten **cassette-primary**-Prüfpfad mit Pflicht-Frequenz-/Pegel-Matrix, musiknahen Verbundfällen und breitbandigen Fällen.
+- The firmware builds with PlatformIO for `teensy41`.
+- The firmware decoder path is explicitly **stereo-coupled**: a shared detector based on `max(L/R)` sidechain power and a shared gain stage. This reduces stereo image drift on asymmetric material.
+- Output finalization is centralized in `finalizeOutput`: output trim, headroom, soft clip, and clip counting run consistently across both the decode and bypass paths.
+- An offline simulator for WAV files is included.
+- The harness explicitly separates:
+  - **reference-free stability and plausibility evaluation** (clipping, channel mismatch, ballistics/pumping indicators, spectral coloration, transient loss, soft-clip dependence)
+  - **optional reference evaluation** (only when real reference files are available)
+- The reference-free scoring logic also evaluates **level-tracking plausibility** via gain-vs-input slope/R² and penalizes overly flat or implausible tracking.
+- Tuning uses a **two-stage search**: fast coarse selection (for example at 4 kHz) followed by final re-ranking at **44.1 kHz**.
+- The simulator can additionally compare an **RMS-closer detector path** (`detector_mode=rms`) against the previous energy-like path.
+- The harness now includes an explicit **cassette-primary** validation path with a mandatory frequency/level matrix, music-like compound cases, and broadband cases.
 
-## Hardwarebezogene Punkte
+## Hardware-specific points
 
-Folgende Aspekte können nur auf realer Hardware abschließend beurteilt werden:
+The following aspects can only be fully evaluated on real hardware:
 
-- Analoges Headroom- und Noise-Verhalten der SGTL5000-Stufe
-- Endgültige Abstimmung für konkrete Zuspieler (z. B. TEAC W-1200, FiiO CP13, We Are Rewind)
-- Subjektive Klangbeurteilung realer Type-II-encodierter Inhalte
+- Analog headroom and noise behavior of the SGTL5000 stage
+- Final tuning for specific source devices (for example TEAC W-1200, FiiO CP13, We Are Rewind)
+- Subjective sound evaluation of real Type-II encoded material
 
-## Wichtige Dateien
+## Key files
 
-- `ocx_type2_teensy41_decoder.ino` – Firmware
-- `ocx_type2_profile.json` – gemeinsames Profil für Firmware und Simulator
-- `ocx_type2_wav_sim.py` – Offline-Simulator
-- `ocx_type2_harness.py` – Regression, Harness und Tuning
-- `tests/test_ocx_type2.py` – Tests
-- `FINAL_VALIDATION_ocx_type2_teensy.md` – methodische Validierung und Hardwareablauf
+- `ocx_type2_teensy41_decoder.ino` – firmware
+- `ocx_type2_profile.json` – shared profile for firmware and simulator
+- `ocx_type2_wav_sim.py` – offline simulator
+- `ocx_type2_harness.py` – regression, harness, and tuning
+- `tests/test_ocx_type2.py` – tests
+- `FINAL_VALIDATION_ocx_type2_teensy.md` – validation methodology and hardware workflow
 
-## Profilprinzip
+## Profile principle
 
-Es gibt **ein konservatives Universalprofil** für die fest definierte Zielhardware.  
-Ein Mehrprofil-System oder eine Auto-Erkennung sind nicht vorgesehen.
+There is **one conservative universal profile** for the fixed target hardware.  
+There is no multi-profile system and no auto-detection.
 
-Aktueller Stand `ocx_type2_universal_v2`:
+Current state `ocx_type2_universal_v2`:
 
 - `sample_rate_hz = 44100`
 - `audio_memory_blocks = 64`
@@ -67,107 +67,107 @@ Aktueller Stand `ocx_type2_universal_v2`:
 - `tone.frequency_hz = 400.0`
 - `tone.level_dbfs = -9.8`
 
-Hinweis zur Samplerate: Profil und Harness arbeiten mit **44.1 kHz nominal**.  
-Die Teensy-Firmware läuft zur Laufzeit mit `AUDIO_SAMPLE_RATE_EXACT` (leicht abweichender exakter I2S-Takt), ohne dass daraus automatisch andere Profilparameter abgeleitet werden.
+Note on sample rate: the profile and harness operate at **44.1 kHz nominal**.  
+At runtime, the Teensy firmware runs at `AUDIO_SAMPLE_RATE_EXACT` (a slightly different exact I2S clock), without automatically deriving different profile parameters from that.
 
-## Kalibrierpegel und Decoder-Referenz
+## Calibration level vs. decoder reference
 
-Diese beiden Werte sind bewusst voneinander getrennt:
+These two values are intentionally kept separate:
 
-- `tone.level_dbfs` ist der **Kalibrier-Testtonpegel** für den realen Deck-/Band-Abgleich.
-- `decoder.reference_db` ist ein **interner Modellparameter** der Decoder-Regelung.
+- `tone.level_dbfs` is the **calibration test tone level** used for real deck/tape alignment.
+- `decoder.reference_db` is an **internal model parameter** of the decoder control loop.
 
-In der Firmware wird der Kalibrierton **post-decoder** in den Ausgangsmix eingespeist.  
-Er dient damit der Ausgangs- und Workflow-Kalibrierung, nicht als Decoder-Eingangstestton.
+In the firmware, the calibration tone is injected **post-decoder** into the output mix.  
+It is therefore used for output and workflow calibration, not as a decoder input test tone.
 
-Auch `bypass` ist bewusst **kein transparenter Hard-Relay-Bypass**: Headroom und Softclip bleiben aktiv, damit der analoge Ausgangsschutz auch im Bypass-Betrieb erhalten bleibt.
+Also, `bypass` is intentionally **not** a transparent hard-relay bypass: headroom and soft clip remain active so that analog output protection is preserved even in bypass mode.
 
-### Aktueller Hardware-Bezugspunkt für das dokumentierte Nutzer-Setup
-(Mixtape Nerd + TEAC W-1200 + RTM-Band)
+### Current hardware reference point for the documented user setup
+(Mixtape Nerd + TEAC W-1200 + RTM tape)
 
-- 0 VU bzw. Tape-Referenz liegt praktisch bei ca. **-9.8 dBFS**  
-  (rundbar auf -10 dBFS)
-- Deshalb ist der Default-Testton auf **400 Hz @ -9.8 dBFS** gesetzt
+- 0 VU / tape reference is practically located at about **-9.8 dBFS**  
+  (roundable to -10 dBFS)
+- That is why the default test tone is set to **400 Hz @ -9.8 dBFS**
 
-Dabei handelt es sich um einen **setup-spezifischen Messwert**, nicht um einen universellen historischen dbx-Standard.
+This is a **setup-specific measurement value**, not a universal historical dbx standard.
 
-`decoder.reference_db` bleibt vorerst bei `-18.0`, bis Simulator-, Harness- und Hardwarevergleich eine belastbare, davon unabhängige Anpassung dieses Modellparameters rechtfertigen.
+`decoder.reference_db` remains at `-18.0` for now, until simulator, harness, and hardware comparison justify an independently supported adjustment of this model parameter.
 
-## Methodik: digitale Referenz und analoges Ziel
+## Methodology: digital reference vs. analog target
 
-### 1) Digitaler Referenzpfad (Black-Box-Vergleich)
+### 1) Digital reference path (black-box comparison)
 
-Beispiel: USB-Ausspielung, PC-Referenzdecoder oder Simulator.  
-In diesem Pfad werden Decoderlogik, Ballistik und Type-II-Tendenzen bewertet.
+Example: USB playback, PC reference decoder, or simulator.  
+This path is used to evaluate decoder logic, ballistics, and Type-II tendencies.
 
-**Nicht Teil dieses Pfads** sind:
+The following are **not part of this path**:
 
 - SGTL5000 `line_in_level`
-- analoger Frontend-Headroom
+- analog frontend headroom
 
-### 2) Analoger Zielpfad (reale Teensy-Hardware)
+### 2) Analog target path (real Teensy hardware)
 
-Beispiel: analog out (TEAC/FiiO/WAR) → Teensy Line-In → OCX → analog out
+Example: analog out (TEAC/FiiO/WAR) → Teensy Line-In → OCX → analog out
 
-Hier stehen im Fokus:
+The focus here is on:
 
 - `line_in_level`
-- Input-Trim
-- Clipping-Reserven
-- Noise/Hum
-- Laufzeitstabilität
+- input trim
+- clipping margin
+- noise/hum
+- runtime stability
 
-Beide Pfade werden methodisch klar getrennt betrachtet und nicht miteinander vermischt.
+These two paths are kept methodologically separate and are not mixed.
 
-## Referenzmaterial
+## Reference material
 
-### Grundsätzliches
+### General notes
 
-- **Kassette A (uncompanded)** eignet sich gut für Pegel-, Linearitäts- und Headroom-Kontrolle, ist aber allein nicht ausreichend für den Type-II-Decoderabgleich.
-- **Kassette B (Type-II-encodiert)** ist für eine echte Decoderabstimmung erforderlich.
+- **Cassette A (uncompanded)** is useful for level, linearity, and headroom checks, but it is not sufficient on its own for Type-II decoder alignment.
+- **Cassette B (Type-II encoded)** is required for actual decoder tuning.
 
-Für den Black-Box-Referenzvergleich gilt:
+For black-box reference comparison, the following applies:
 
-- Referenzdateien werden längenangepasst verglichen.
-- MSE, MAE, Korrelation sowie Frequenz- und Transientenvergleich werden separat als Referenzscore erfasst.
-- Ohne Referenz wird **keine Aussage über Referenznähe** getroffen.
-- Optionale Hilfen wie Play Trim, Azimuth-Korrektur, Gap-Loss-Kompensation oder EQ-Konvertierung (IEC 120 µs ↔ 70 µs) gelten als **Hilfen im Referenzpfad**, nicht als implizite OCX-Kernlogik.
+- Reference files are compared after length alignment.
+- MSE, MAE, correlation, frequency comparison, and transient comparison are recorded separately as a reference score.
+- Without a reference, **no claim of reference closeness** is made.
+- Optional aids such as play trim, azimuth correction, gap-loss compensation, or EQ conversion (IEC 120 µs ↔ 70 µs) are treated as **reference-path aids**, not as implicit OCX core logic.
 
-### Empfohlenes Cassette-primary-Referenzlayout
+### Recommended cassette-primary reference layout
 
-Klare Trennung zwischen:
+Clear separation between:
 
-- `refs/type2_cassette_real/` = echte, legal nutzbare Referenzen mit belegter Herkunft/Lizenz
-- `refs/type2_cassette_synth/` = synthetische bzw. approximative, reproduzierbar erzeugte Referenzen
+- `refs/type2_cassette_real/` = real, legally usable references with documented origin/license
+- `refs/type2_cassette_synth/` = synthetic or approximate references generated reproducibly
 
-Pro Fall:
+Per case:
 
-- `<name>_encoded.wav` (Pflicht)
-- `<name>_source.wav` (Pflicht)
+- `<name>_encoded.wav` (required)
+- `<name>_source.wav` (required)
 - `<name>_reference_decode.wav` (optional)
-- `<name>.json` (Pflicht-Metadaten: Herkunft, Lizenz, Trust-Level, `source_type`)
+- `<name>.json` (required metadata: origin, license, trust level, `source_type`)
 
-Nur Fälle mit mindestens `*_encoded.wav` und `*_source.wav` werden als `cassette_reference` in die Bewertung aufgenommen.  
-Diese Struktur verbessert die Praxisnähe, stellt für sich genommen jedoch noch keinen Nachweis historischer Standardgleichheit dar.
+Only cases containing at least `*_encoded.wav` and `*_source.wav` are included as `cassette_reference` in the evaluation.  
+This structure improves practical relevance, but on its own it does not establish historical standard equivalence.
 
-Standardmäßig enthält das Repository **keine echten lizenzierten dbx-Type-II-Referenzaufnahmen**.  
-Die mitgelieferte Primärbasis ist daher zunächst synthetisch bzw. approximativ und entsprechend gekennzeichnet.
+By default, the repository contains **no real licensed dbx Type-II reference recordings**.  
+Therefore, the included primary basis is initially synthetic or approximate and marked accordingly.
 
-### Bekannte bereitgestellte Kandidaten
+### Known provided candidates
 
-Folgende Kandidaten können separat importiert werden:
+The following candidates can be imported separately:
 
-- `musik_enc.wav` (falls vorhanden): wird für den Offline-Pfad auf 44.1 kHz resampelt und als `encoded_candidate_only` geführt
-- `musicfox_shopping_street.mp3` (falls decodierbar): wird ebenfalls auf 44.1 kHz gebracht, jedoch nur als Zusatz- bzw. Stressfall geführt
+- `musik_enc.wav` (if present): resampled to 44.1 kHz for the offline path and treated as `encoded_candidate_only`
+- `musicfox_shopping_street.mp3` (if decodable): also converted to 44.1 kHz, but used only as an additional or stress case
 
-Der Import sucht diese Dateien zuerst im angegebenen Suchpfad und zusätzlich rekursiv darunter, falls sie nicht im Root liegen.
+The import process searches for these files first in the specified search path and then recursively below it if they are not located at the root.
 
-Beide Fälle gelten ohne dokumentierten Encoder- und Lizenzpfad **nicht** als harte Goldreferenz.
+Without a documented encoder and license path, neither case is treated as a hard gold reference.
 
-Referenzpaare `*_encoded.wav` und `*_source.wav` werden im Harness bei Bedarf ebenfalls auf die Zielrate des Profils (44.1 kHz) normalisiert, damit gemischte Quell-Sampleraten den Lauf nicht blockieren.  
-Die Originaldateien bleiben unverändert.
+Reference pairs `*_encoded.wav` and `*_source.wav` are also normalized by the harness to the target profile rate (44.1 kHz) when needed, so mixed source sample rates do not block execution.  
+The original files remain unchanged.
 
-## Lokale Checks
+## Local checks
 
 ```bash
 python -m py_compile ocx_type2_wav_sim.py
@@ -177,124 +177,124 @@ pytest -q
 pio run -e teensy41
 ```
 
-## Harness- und Tuning-Beispiele
+## Harness and tuning examples
 
 ```bash
-# Standard-Offline-Bewertung
+# Standard offline evaluation
 python ocx_type2_harness.py --out-dir artifacts/harness
 
-# Synthetisches Referenzpaket erzeugen (reproduzierbar)
+# Generate synthetic reference package (reproducible)
 python ocx_type2_harness.py --generate-synth-refs --reference-dir refs --out-dir artifacts/harness_refs
 
-# Reale Referenzen indexieren (falls legal vorhanden)
+# Index real references (if legally available)
 python ocx_type2_harness.py --index-real-refs --reference-dir refs --out-dir artifacts/harness_refs
 
-# Bekannte lokale Musik-Kandidaten importieren (falls Dateien lokal vorhanden sind)
+# Import known local music candidates (if files are available locally)
 python ocx_type2_harness.py --prepare-known-music-candidates --reference-dir refs --out-dir artifacts/harness_refs
 
-# Optional: reale Referenzen aus Manifest laden (nur rechtlich saubere URLs)
+# Optional: fetch real references from manifest (only legally clean URLs)
 python ocx_type2_harness.py --fetch-real-refs-manifest refs/type2_cassette_real/manifest.example.json --reference-dir refs --out-dir artifacts/harness_refs
 
-# Bewertung nur cassette-priority Fälle, getrennt nach Source-Typ (real/synthetic/all)
+# Evaluate cassette-priority cases only, separated by source type (real/synthetic/all)
 python ocx_type2_harness.py --out-dir artifacts/harness_ref --reference-dir refs --cassette-priority-only --reference-source all
 
-# Decoder-Overrides
+# Decoder overrides
 python ocx_type2_harness.py --override strength=0.80 --override release_ms=160
 
-# Zweistufiges Tuning: coarse (4 kHz) + final (44.1 kHz)
+# Two-stage tuning: coarse (4 kHz) + final (44.1 kHz)
 python ocx_type2_harness.py --tune --tune-fs 4000 --tune-final-fs 44100 --tune-top-k 6
 
-# Detector-Methodikvergleich (energy vs. RMS-näher)
+# Detector methodology comparison (energy vs. more RMS-like)
 python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detector
 ```
 
-## Hardware-Telemetrie und Auswertung
+## Hardware telemetry and evaluation
 
-### Firmware-Kommandos
+### Firmware commands
 
-- `p` = voller Status
-- `m` = kompakter Telemetrie-Status  
-  (inkl. `bypass=ON/OFF`, letztem `gDb/envDb`, Tonstatus und L/R-Modus)
-- `n` = Signaldiagnose-Snapshot  
-  (Input/Output Peak + RMS + Mean, Gain/Env, Decode-Aktivität, In/Out-Delta, L/R-Balance)
-- `N` = Signaldiagnose-Counter gezielt zurücksetzen
-- `v` = nur neue Clip-Ereignisse seit der letzten `v`-/`m`-/`p`-Abfrage ausgeben
-- `X` = Clip-/Runtime-Counter, Signaldiagnose und Usage-Max zurücksetzen
-- `k` = Testton-Kanalmodus zyklisch umschalten (`BOTH -> LEFT -> RIGHT`)
-- `0` = Factory-Preset neu laden
+- `p` = full status
+- `m` = compact telemetry status  
+  (including `bypass=ON/OFF`, last `gDb/envDb`, tone status, and L/R mode)
+- `n` = signal diagnostics snapshot  
+  (input/output peak + RMS + mean, gain/env, decode activity, in/out delta, L/R balance)
+- `N` = reset signal diagnostics counters only
+- `v` = print only new clip events since the last `v` / `m` / `p` query
+- `X` = reset clip/runtime counters, signal diagnostics, and usage maxima
+- `k` = cycle test-tone channel mode (`BOTH -> LEFT -> RIGHT`)
+- `0` = reload factory preset
 
-### Bedeutung der Telemetrie
+### Telemetry meaning
 
 - `AudioProcessorUsage()` / `AudioProcessorUsageMax()`  
-  → aktuelle und maximale DSP-CPU-Last
+  → current and maximum DSP CPU load
 - `AudioMemoryUsage()` / `AudioMemoryUsageMax()`  
-  → aktuell genutzte Audio-Blöcke bzw. Maximum
+  → currently used audio blocks and maximum usage
 - `allocFailCount`  
-  → Audio-Block-Allokation fehlgeschlagen (muss 0 bleiben)
+  → audio block allocation failures (must remain 0)
 - `inputClipCount`  
-  → Frontend/Decoder-Eingang übersteuert
+  → frontend/decoder input overloaded
 - `outputClipCount`  
-  → Ausgangspfad übersteuert
+  → output path overloaded
 - `inClipNew` / `outClipNew`  
-  → neue Clipping-Ereignisse seit der letzten Statusabfrage
-- `gain clamp hits` / `near-limit` im Snapshot  
-  → wie oft `maxCutDb` bzw. `maxBoostDb` hart oder beinahe erreicht wurden
+  → new clipping events since the last status query
+- `gain clamp hits` / `near-limit` in the snapshot  
+  → how often `maxCutDb` / `maxBoostDb` were reached hard or nearly reached
 
-## Empfohlener Ablauf auf realer Hardware
+## Recommended workflow on real hardware
 
-1. Gerät booten und mit `0` das Factory-Preset laden.
-2. Mit `X` Clip-/Runtime-Zähler und Maxima zurücksetzen.
-3. Kalibrierung: 400-Hz-Testton bei `tone.level_dbfs = -9.8` einspeisen und auf den eigenen 0-VU-/Referenzpunkt des Deck-Workflows abgleichen.
-4. Definierte Testquelle über mehrere Minuten abspielen.
-5. Mit `m` zyklisch den kompakten Status lesen, mit `p` den Vollstatus prüfen.
-6. Bewertung: CPU- und Memory-Reserve ausreichend, `allocFailCount == 0`, Clip-Zähler plausibel in Bezug auf Eingangspegel und Headroom.
+1. Boot the device and load the factory preset with `0`.
+2. Reset clip/runtime counters and maxima using `X`.
+3. Calibration: feed a 400 Hz test tone at `tone.level_dbfs = -9.8` and align it to the setup’s own 0 VU / reference point in the deck workflow.
+4. Play the defined test source for several minutes.
+5. Read the compact status cyclically with `m`, and check the full status with `p`.
+6. Evaluation: CPU and memory reserve sufficient, `allocFailCount == 0`, clip counters plausible relative to input level and headroom.
 
-Die kompakte `m`-Zeile zeigt dafür explizit `cpuRes=OK/TIGHT` und `memRes=OK/TIGHT` zusammen mit Clip-/Alloc-Zählern sowie gut sichtbar `bypass=ON/OFF`.
+The compact `m` line explicitly shows `cpuRes=OK/TIGHT` and `memRes=OK/TIGHT` alongside clip/allocation counters and a clearly visible `bypass=ON/OFF`.
 
-Zusätzlich enthält `m` jetzt `inClipNew/outClipNew`, sodass neue Übersteuerungen seit dem letzten Report sofort erkennbar sind.
+In addition, `m` now reports `inClipNew/outClipNew`, so new overload events since the last report are immediately visible.
 
-Der Snapshot `n` ist als Live-Diagnosefenster gedacht:  
-`N` drücken, Material abspielen, `n` lesen und anhand von In/Out-Delta, Gain-Min/Max und Decode-Aktivität bewerten.
+The `n` snapshot is intended as a live diagnostics window:  
+press `N`, play material, read `n`, and evaluate based on in/out delta, gain min/max, and decode activity.
 
-Er enthält zusätzlich praxisnahe Cassette-Indikatoren mit sehr niedriger CPU-Last:
+It also includes practical cassette-related indicators with very low CPU cost:
 
-- RMS- und Peak-L/R-Balance in/out
-- L/R-Differenzmittel und normierte L/R-Korrelation  
-  (Hinweis auf Kanal- oder Phasenauffälligkeiten)
-- einfacher Sidechain-HF/LF-Proxy (`high-vs-low`)  
-  als grober Hinweis auf höhenarme bzw. höhenreiche Reize für den Detector
-- Aktivitätsklassifikation (`LOW` / `MODERATE` / `HIGH`) plus `Cassette quick hints`  
-  (als Diagnosehilfe, nicht als Normnachweis)
-- Clamp-Auswertung (`cut/boost hits`, `near-limit`, kompakte Interpretation),  
-  um z. B. Fälle wie `minGainDb = -24 dB` besser einzuordnen
+- RMS and peak L/R balance in/out
+- L/R difference mean and normalized L/R correlation  
+  (indication of channel or phase issues)
+- simple sidechain HF/LF proxy (`high-vs-low`)  
+  as a rough indicator of low- or high-frequency detector stimulus
+- activity classification (`LOW` / `MODERATE` / `HIGH`) plus `Cassette quick hints`  
+  (diagnostic aid only, not a proof of standard compliance)
+- clamp evaluation (`cut/boost hits`, `near-limit`, compact interpretation),  
+  helping to contextualize cases such as `minGainDb = -24 dB`
 
-## Arduino-`.ino`-Kompatibilität
+## Arduino `.ino` compatibility
 
-`toneChannelModeLabel(...)` ist bewusst mit `uint8_t`-Signatur gehalten, damit der Arduino-IDE- bzw. `.ino`-Prototype-Preprocessor keinen Enum-Reihenfolgefehler auslöst.
+`toneChannelModeLabel(...)` intentionally uses a `uint8_t` signature so that the Arduino IDE / `.ino` prototype preprocessor does not trigger enum ordering errors.
 
-## Testkassetten-Methodik
+## Test cassette methodology
 
-- **Kassette A (nicht compandiert, Grundreferenz):**  
-  400 Hz (hier: -9.8 dBFS als setup-spezifischer 0-VU-Bezug), 1 kHz, 10 kHz, 3.15 kHz für Pegel, Kanalgleichheit, HF-/Azimuth- und Speed-Kontrolle
-- **Kassette B (Type-II-encodiert, Decoder-Tuning):**  
-  Mehrpegel-1-kHz, Bursts, Envelope-Steps, Pink/White Noise, Sweep, Bass+HF, Musik
-- **Cassette-primary Harness (offline):**
-  - Einzelton-/Mehrpegel-Matrix: **400 Hz, 1 kHz, 3.15 kHz, 10 kHz** über mehrere Pegel
-  - Mehrfrequenz- und musiknahe Verbundfälle: Two-Tone, Bass+HF, Burst-/Transient-Train, Fast-Level-Switches, `music_like`
-  - Breitbandfälle: Pink/White-Noise, Log-Sweep
+- **Cassette A (not companded, base reference):**  
+  400 Hz (here: -9.8 dBFS as the setup-specific 0 VU reference), 1 kHz, 10 kHz, 3.15 kHz for level, channel matching, HF/azimuth, and speed checks
+- **Cassette B (Type-II encoded, decoder tuning):**  
+  multi-level 1 kHz, bursts, envelope steps, pink/white noise, sweep, bass+HF, music
+- **Cassette-primary harness (offline):**
+  - single-tone / multi-level matrix: **400 Hz, 1 kHz, 3.15 kHz, 10 kHz** across multiple levels
+  - multi-frequency and music-like compound cases: two-tone, bass+HF, burst/transient train, fast level switches, `music_like`
+  - broadband cases: pink/white noise, log sweep
 
-Dabei gilt: Immer genau **einen** Type-II-Encoding-Pfad verwenden, keine Doppel-Encodierung.
+Always use exactly **one** Type-II encoding path. No double encoding.
 
-## Einordnung der Aussagen
+## Scope of claims
 
-Dieses Projekt trifft **keine** Aussage über Bit-Exactness, Originalgleichheit oder Referenzgleichheit ohne belastbaren Messnachweis.
+This project makes **no** claim of bit-exactness, original equivalence, or reference equivalence without solid measurement evidence.
 
-Auch der erweiterte cassette-primary Harness erhöht in erster Linie die praktische Validierungstiefe; er ersetzt keine vollständig dokumentierte dbx-Type-II-Normkonformitätsmessung.
+The extended cassette-primary harness primarily increases practical validation depth; it does not replace a fully documented dbx Type-II standards-conformance measurement.
 
-## Kompatibilitätsstatus (dbx Type II Cassette)
+## Compatibility status (dbx Type II cassette)
 
-- Ziel bleibt eine möglichst hohe praktische Decoder-Kompatibilität für reale Type-II-Kassetten im beschriebenen Hardware-Setup.
-- Der aktuelle Stand ist ein methodisch abgestimmter, stabiler Decoderpfad mit Type-II-orientierter Ballistik und Sidechain-Formung.
-- Eine historische Standardgenauigkeit eines dbx-Type-II-Decoders ist damit derzeit jedoch nicht belegt.
-- Disc-spezifische Annahmen, beispielsweise implizite LF-Roll-off-Übernahmen, werden nicht stillschweigend als Cassette-Default übernommen.
-- Offene Restabweichungen werden über Harness- und Hardware-Messungen dokumentiert und weitergeführt, nicht über Gleichheitsbehauptungen ersetzt.
+- The goal remains maximum practical decoder compatibility for real dbx Type-II cassettes within the described hardware setup.
+- The current state is a methodically tuned, stable decoder path with Type-II-oriented ballistics and sidechain shaping.
+- Historical standard accuracy of a dbx Type-II decoder is not currently established.
+- Disc-specific assumptions, such as implicit LF roll-off carry-over, are not silently adopted as cassette defaults.
+- Remaining deviations are tracked through harness and hardware measurements rather than being masked by equivalence claims.
