@@ -12,7 +12,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ocx_type2_harness as harness_module
-from ocx_type2_harness import build_cases, compare, evaluate_scores, run_detector_study, run_tuning
+from ocx_type2_harness import (
+    CASSETTE_PRIMARY_FREQS_HZ,
+    CASSETTE_PRIMARY_LEVELS_DB,
+    build_case_specs,
+    build_cases,
+    compare,
+    evaluate_scores,
+    run_detector_study,
+    run_tuning,
+)
 from ocx_type2_wav_sim import PROFILE_PATH, Decoder, Params, ensure_stereo
 
 
@@ -102,10 +111,42 @@ def test_compare_handles_reference_length_mismatch_without_crash():
     audio = build_cases(fs)["music_like"]
     out = Decoder(fs, params).process(audio)
     short_ref = out[: len(out) // 2]
-    metrics = compare(audio, out, short_ref)
+    metrics = compare(audio, out, fs, short_ref)
     assert metrics["mse_vs_reference"] is not None
     assert np.isfinite(metrics["mse_vs_reference"])
     assert int(metrics["reference_samples_used"]) == len(short_ref)
+
+
+def test_cassette_tone_matrix_contains_required_frequencies_and_levels():
+    specs = build_case_specs(4000)
+    matrix_rows = [v for v in specs.values() if v.get("group") == "cassette_tone_matrix"]
+    freqs = sorted({float(v["frequency_hz"]) for v in matrix_rows})
+    levels = sorted({float(v["level_db"]) for v in matrix_rows})
+    assert freqs == sorted(CASSETTE_PRIMARY_FREQS_HZ)
+    assert levels == sorted(CASSETTE_PRIMARY_LEVELS_DB)
+
+
+def test_reference_case_discovery_from_type2_cassette_layout(tmp_path):
+    import soundfile as sf
+
+    fs = 4000
+    ref_root = tmp_path / "refs" / "type2_cassette"
+    ref_root.mkdir(parents=True)
+    n = 256
+    t = np.arange(n) / fs
+    src = np.sin(2 * np.pi * 400.0 * t)
+    enc = 0.7 * src
+    dec = 0.95 * src
+    sf.write(ref_root / "case_a_source.wav", np.column_stack([src, src]), fs)
+    sf.write(ref_root / "case_a_encoded.wav", np.column_stack([enc, enc]), fs)
+    sf.write(ref_root / "case_a_reference_decode.wav", np.column_stack([dec, dec]), fs)
+    sf.write(ref_root / "case_b_encoded.wav", np.column_stack([enc, enc]), fs)
+    specs = build_case_specs(fs, tmp_path / "refs")
+    assert "ref_case_a" in specs
+    assert specs["ref_case_a"]["group"] == "cassette_reference"
+    assert "source_target" in specs["ref_case_a"]
+    assert "reference_decode" in specs["ref_case_a"]
+    assert "ref_case_b" not in specs
 
 
 def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is_high():
@@ -118,7 +159,10 @@ def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is
         "gain_curve_diff_p95_db": 2.2,
         "gain_curve_diff_std_db": 1.1,
         "freq_response_delta_db": 5.0,
+        "freq_delta_mid_db": 2.0,
         "transient_delta": 0.2,
+        "overshoot_delta": 0.02,
+        "undershoot_delta": 0.02,
         "soft_clip_dependency": 0.0,
         "gain_curve_mean_db": -1.0,
         "input_level_span_db": 18.0,
@@ -129,6 +173,9 @@ def test_no_reference_score_penalizes_under_decoding_even_if_input_similarity_is
         "transient_delta_vs_reference": None,
         "correlation_vs_reference": None,
         "reference_available": False,
+        "case_group": "synthetic",
+        "matrix_frequency_hz": None,
+        "matrix_level_db": None,
         "mse": 0.0,
         "mae": 0.0,
         "max_abs_error": 0.0,
@@ -274,3 +321,20 @@ def test_calibration_tone_level_and_decoder_reference_remain_separate():
 def test_help_text_mentions_400hz_calibration_tone():
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
     assert "toggle 400 Hz calibration tone" in ino
+
+
+def test_partial_reference_coverage_does_not_break_evaluation(tmp_path):
+    import soundfile as sf
+
+    fs = 4000
+    case_specs = build_case_specs(fs)
+    name = "sine_-12db"
+    inp = case_specs[name]["input"]
+    ref_dir = tmp_path / "refs"
+    ref_dir.mkdir()
+    sf.write(ref_dir / f"{name}.wav", inp, fs)
+    rows = harness_module.evaluate_candidate(PROFILE_PATH, fs, case_specs, reference_dir=ref_dir)
+    with_ref = [r for r in rows if r["case"] == name][0]
+    no_ref = [r for r in rows if r["case"] == "pink_noise"][0]
+    assert with_ref["reference_available"] is True
+    assert no_ref["reference_available"] is False

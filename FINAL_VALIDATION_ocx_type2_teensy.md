@@ -20,6 +20,23 @@ Die Methodik trennt strikt:
 
 ## Methodikdetails
 
+### Cassette-primary Pfad (neu, offline)
+
+Der Harness behandelt dbx-Type-II-Cassette jetzt explizit als Primärpfad:
+
+1. **Einzelton-/Mehrpegel-Matrix**
+   - Pflichtfrequenzen: 400 Hz, 1 kHz, 3.15 kHz, 10 kHz
+   - Mehrere Pegel pro Frequenz für Gain-/Level-Tracking
+2. **Mehrfrequenz-/musiknahe Fälle**
+   - Two-/Multi-Tone, Bass+HF gleichzeitig
+   - Burst-/Transient-Train, Fast-Level-Switches, `music_like`
+3. **Breitbandfälle**
+   - Pink/White Noise, Log Sweep
+4. **Cassette-Referenzfälle (wenn vorhanden)**
+   - `*_encoded.wav` + `*_source.wav`, optional `*_reference_decode.wav`
+
+Dieser Pfad verbessert die Praxisnähe deutlich, ist aber weiterhin keine automatische „100 % dbx-original“-Aussage.
+
 ## A) Referenzlose Bewertung (Plausibilität/Stabilität)
 
 Bewertet werden u. a.:
@@ -32,6 +49,8 @@ Bewertet werden u. a.:
 - übermäßige Soft-Clip-Abhängigkeit
 - unplausible Reaktion über unterschiedliche Eingangspegel
 - Gain-vs-Input-Tracking (Slope/R²) bei ausreichender Pegelspanne
+- bandbegrenzte Spektraldeltas (Low/Mid/High) statt nur globalem Spektralwert
+- Overshoot-/Undershoot-Indikatoren für Burst-/Transient-Fälle
 
 Nicht als Primärziel: maximale Input-Ähnlichkeit.
 Zusätzlich wird eine zu schwache Dekodierwirkung (Under-Decoding) explizit bestraft, damit „Input fast unverändert“ nicht trivial gewinnt.
@@ -43,8 +62,15 @@ Wenn Referenzdateien vorhanden sind:
 - Längenabgleich auf gemeinsame Mindestlänge
 - getrennte Referenzmetriken (`*_vs_reference`)
 - separater Referenzscore zusätzlich zum Plausibilitätsscore
+- optional zusätzlicher Vergleich gegen `source` (Originalmaterial), getrennt von `reference_decode`
 
 Ohne Referenzdateien wird keine Referenznähe behauptet.
+
+Empfohlenes Layout:
+
+- `refs/type2_cassette/<name>_encoded.wav`
+- `refs/type2_cassette/<name>_source.wav`
+- optional `refs/type2_cassette/<name>_reference_decode.wav`
 
 ## C) Zweistufige Abstimmung
 
