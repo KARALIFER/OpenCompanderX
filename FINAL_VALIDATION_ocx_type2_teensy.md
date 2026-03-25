@@ -42,10 +42,16 @@ Dieser Pfad verbessert die Praxisnähe deutlich, ist aber weiterhin keine automa
 
 - Harness unterstützt jetzt eine zweistufige Referenzpipeline:
   - `--index-real-refs` und optional `--fetch-real-refs-manifest` für legal belegte reale Daten in `refs/type2_cassette_real/`.
+  - `--prepare-known-music-candidates` für bekannte bereitgestellte Kandidaten (`musik_enc.wav`, `musicfox_shopping_street.mp3`) als `encoded_candidate_only`-Fälle.
   - `--generate-synth-refs` für reproduzierbare synthetische Fälle in `refs/type2_cassette_synth/`.
 - Reale und synthetische Fälle werden im Lauf getrennt geführt (`reference_source_type`) und getrennt zusammengefasst (`split_summary.json`).
 - Reale Referenzen werden im Score höher gewichtet als synthetische; Trust-Level wird zusätzlich berücksichtigt.
 - Wichtige Grenze bleibt explizit: der interne Approximations-Encoder ist ein Testwerkzeug und **kein** Beweis historischer dbx-Type-II-Normgleichheit.
+
+Hinweis zu den zwei bekannten Kandidaten:
+
+- `musik_enc.wav` wird bei Import auf 44.1 kHz normalisiert und als praxisnaher encoded Kandidat geführt, solange Herkunft/Encoderpfad nicht belegt ist.
+- `musicfox_shopping_street.mp3` bleibt Zusatz-/Stressmaterial (verlustbehaftet, nicht Primärreferenz).
 
 ## A) Referenzlose Bewertung (Plausibilität/Stabilität)
 

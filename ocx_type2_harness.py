@@ -530,6 +530,50 @@ def _synthetic_case_specs(fs: int) -> dict[str, dict[str, object]]:
 
 REF_REAL_DIRNAME = "type2_cassette_real"
 REF_SYNTH_DIRNAME = "type2_cassette_synth"
+KNOWN_MUSIC_CANDIDATES = (
+    {
+        "filename": "musik_enc.wav",
+        "case_name": "musik_enc_candidate",
+        "source_type": "provided",
+        "category": "cassette_music_candidate",
+        "license": "unspecified",
+        "origin": "User-provided local file (path unknown in repo state)",
+        "notes": (
+            "Encoded candidate from user-provided material. No documented encoder chain in repository; "
+            "treat as cassette-primary candidate, not hard gold reference."
+        ),
+        "trust_level": "candidate_only",
+    },
+    {
+        "filename": "musicfox_shopping_street.mp3",
+        "case_name": "musicfox_shopping_street_candidate",
+        "source_type": "provided",
+        "category": "cassette_music_candidate",
+        "license": "unspecified",
+        "origin": "User-provided local file (path unknown in repo state)",
+        "notes": (
+            "Lossy MP3 candidate for stress/listening validation only. "
+            "Not a primary decoder reference path."
+        ),
+        "trust_level": "low",
+    },
+)
+
+
+def resample_audio_linear(audio: np.ndarray, fs_in: int, fs_out: int) -> np.ndarray:
+    arr = ensure_stereo(audio)
+    if fs_in == fs_out:
+        return arr
+    if len(arr) == 0:
+        return arr
+    duration = len(arr) / float(fs_in)
+    out_len = max(1, int(round(duration * fs_out)))
+    x_in = np.linspace(0.0, duration, len(arr), endpoint=False)
+    x_out = np.linspace(0.0, duration, out_len, endpoint=False)
+    out = np.zeros((out_len, 2), dtype=np.float64)
+    for ch in range(2):
+        out[:, ch] = np.interp(x_out, x_in, arr[:, ch])
+    return ensure_stereo(out)
 
 
 def _approx_type2_encode(source: np.ndarray, fs: int, strength: float = 1.0, reference_db: float = -18.0) -> np.ndarray:
@@ -705,6 +749,54 @@ def fetch_real_references_from_manifest(reference_root: Path, manifest_path: Pat
     return {"manifest": str(manifest_path), "downloaded": downloaded, "skipped": skipped, "downloaded_count": len(downloaded)}
 
 
+def prepare_known_music_candidates(reference_root: Path, fs: int, search_root: Path | None = None) -> dict[str, object]:
+    real_root = reference_root / REF_REAL_DIRNAME
+    real_root.mkdir(parents=True, exist_ok=True)
+    search_root = search_root or Path.cwd()
+    prepared: list[dict[str, object]] = []
+    missing: list[str] = []
+    decode_errors: list[str] = []
+    for item in KNOWN_MUSIC_CANDIDATES:
+        src_path = search_root / str(item["filename"])
+        if not src_path.exists():
+            missing.append(str(src_path))
+            continue
+        try:
+            src_fs, src_audio = read_audio(src_path)
+        except RuntimeError:
+            decode_errors.append(str(src_path))
+            continue
+        audio_44k1 = resample_audio_linear(src_audio, src_fs, fs)
+        case_name = str(item["case_name"])
+        encoded_name = f"{case_name}_encoded.wav"
+        write_audio(real_root / encoded_name, fs, audio_44k1)
+        meta = {
+            "case_name": case_name,
+            "category": str(item["category"]),
+            "source_type": str(item["source_type"]),
+            "cassette_priority": True,
+            "license": str(item["license"]),
+            "origin": str(item["origin"]),
+            "notes": str(item["notes"]),
+            "trust_level": str(item["trust_level"]),
+            "encoded_candidate_only": True,
+            "source_filename": str(item["filename"]),
+            "source_sample_rate_hz": int(src_fs),
+            "prepared_sample_rate_hz": int(fs),
+        }
+        (real_root / f"{case_name}.json").write_text(json.dumps(meta, indent=2))
+        prepared.append(meta)
+    report = {
+        "sample_rate_hz": fs,
+        "prepared_count": len(prepared),
+        "prepared": prepared,
+        "missing": missing,
+        "decode_errors": decode_errors,
+    }
+    (real_root / "prepared_music_candidates.json").write_text(json.dumps(report, indent=2))
+    return report
+
+
 def _match_source_type(spec: dict[str, object], source_types: set[str]) -> bool:
     if "all" in source_types:
         return True
@@ -753,6 +845,31 @@ def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dic
                 if ref_fs == fs:
                     spec["reference_decode"] = ensure_stereo(ref_audio)
             specs[case_name] = spec
+        for encoded in sorted(root.glob("*_encoded.wav")):
+            base = re.sub(r"_encoded$", "", encoded.stem)
+            source = encoded.with_name(f"{base}_source.wav")
+            if source.exists():
+                continue
+            enc_fs, enc_audio = read_audio(encoded)
+            if enc_fs != fs:
+                continue
+            metadata = load_reference_metadata(base, encoded)
+            if not bool(metadata.get("encoded_candidate_only", False)):
+                continue
+            case_name = f"cand_{base}"
+            specs[case_name] = {
+                "input": ensure_stereo(enc_audio),
+                "group": "cassette_music_candidate",
+                "reference_layout": "encoded_only_candidate",
+                "reference_case_base": base,
+                "source_type": str(metadata.get("source_type", "provided")),
+                "cassette_priority": bool(metadata.get("cassette_priority", True)),
+                "license": str(metadata.get("license", "unspecified")),
+                "origin": str(metadata.get("origin", "unspecified")),
+                "notes": str(metadata.get("notes", "")),
+                "trust_level": str(metadata.get("trust_level", "candidate_only")),
+                "category": str(metadata.get("category", "cassette_music_candidate")),
+            }
     return specs
 
 
@@ -955,6 +1072,11 @@ def main() -> None:
     ap.add_argument("--generate-synth-refs", action="store_true", help="Generate reproducible synthetic Type-II cassette reference pack.")
     ap.add_argument("--index-real-refs", action="store_true", help="Index available real reference files and metadata.")
     ap.add_argument("--fetch-real-refs-manifest", type=Path, help="Optional JSON manifest with legally usable real-reference file URLs.")
+    ap.add_argument(
+        "--prepare-known-music-candidates",
+        action="store_true",
+        help="Import known provided music files (musik_enc.wav, musicfox_shopping_street.mp3) into refs/type2_cassette_real at profile sample rate.",
+    )
     ap.add_argument("--write-wavs", action="store_true")
     ap.add_argument("--override", action="append", default=[], help="Decoder override key=value (repeatable)")
     ap.add_argument("--tune", action="store_true", help="Run a compact grid search and report the best candidate.")
@@ -976,6 +1098,8 @@ def main() -> None:
         ref_reports["generate_synth_refs"] = generate_synthetic_reference_pack(args.reference_dir, profile_path=args.profile, fs=fs)
     if args.index_real_refs:
         ref_reports["index_real_refs"] = index_real_references(args.reference_dir)
+    if args.prepare_known_music_candidates:
+        ref_reports["prepare_known_music_candidates"] = prepare_known_music_candidates(args.reference_dir, fs=fs, search_root=Path.cwd())
 
     src_filter = {args.reference_source}
     if args.reference_source == "all":

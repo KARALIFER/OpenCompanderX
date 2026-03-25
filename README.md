@@ -124,6 +124,13 @@ Diese Struktur verbessert die Praxisnähe, beweist aber allein noch keine histor
 
 Aktuell enthält das Repo standardmäßig **keine echten lizenzierten dbx-Type-II-Referenzaufnahmen**. Deshalb ist die mitgelieferte Primärbasis zunächst synthetisch/approximativ und entsprechend gekennzeichnet.
 
+Bekannte bereitgestellte Kandidaten können separat importiert werden:
+
+- `musik_enc.wav` (wenn vorhanden): wird für den Offline-Pfad auf 44.1 kHz resampelt und als `encoded_candidate_only` geführt.
+- `musicfox_shopping_street.mp3` (wenn decodierbar): wird ebenfalls auf 44.1 kHz gebracht, aber nur als Zusatz-/Stressfall geführt.
+
+Beide Fälle gelten ohne dokumentierten Encoder-/Lizenzpfad **nicht** als harte Goldreferenz.
+
 ## Lokale Checks
 
 ```bash
@@ -145,6 +152,9 @@ python ocx_type2_harness.py --generate-synth-refs --reference-dir refs --out-dir
 
 # Reale Referenzen indexieren (falls legal vorhanden)
 python ocx_type2_harness.py --index-real-refs --reference-dir refs --out-dir artifacts/harness_refs
+
+# Bekannte lokale Musik-Kandidaten importieren (falls Dateien lokal vorhanden sind)
+python ocx_type2_harness.py --prepare-known-music-candidates --reference-dir refs --out-dir artifacts/harness_refs
 
 # Optional: reale Referenzen aus Manifest laden (nur rechtlich saubere URLs)
 python ocx_type2_harness.py --fetch-real-refs-manifest refs/type2_cassette_real/manifest.example.json --reference-dir refs --out-dir artifacts/harness_refs
