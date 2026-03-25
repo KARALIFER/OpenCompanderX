@@ -21,6 +21,8 @@ from ocx_type2_harness import (
     compare,
     generate_synthetic_reference_pack,
     evaluate_scores,
+    prepare_known_music_candidates,
+    resample_audio_linear,
     run_detector_study,
     run_tuning,
 )
@@ -362,3 +364,30 @@ def test_build_case_specs_can_filter_cassette_priority_and_source_type(tmp_path)
     assert specs
     assert all(bool(v.get("cassette_priority")) for v in specs.values())
     assert all(str(v.get("source_type")) == "synthetic" for v in specs.values())
+
+
+def test_resample_audio_linear_changes_sample_count_and_stays_stereo():
+    fs_in = 48_000
+    fs_out = 44_100
+    t = np.arange(int(fs_in * 0.25)) / fs_in
+    src = np.column_stack([np.sin(2 * np.pi * 1000.0 * t), np.sin(2 * np.pi * 1200.0 * t)])
+    out = resample_audio_linear(src, fs_in=fs_in, fs_out=fs_out)
+    assert out.ndim == 2 and out.shape[1] == 2
+    assert abs(len(out) - int(round(len(src) * fs_out / fs_in))) <= 1
+
+
+def test_prepare_known_music_candidates_imports_musik_enc_and_exposes_candidate_case(tmp_path):
+    import soundfile as sf
+
+    fs = 48_000
+    t = np.arange(fs) / fs
+    audio = np.column_stack([0.3 * np.sin(2 * np.pi * 400.0 * t), 0.25 * np.sin(2 * np.pi * 1000.0 * t)])
+    sf.write(tmp_path / "musik_enc.wav", audio, fs)
+    refs = tmp_path / "refs"
+    report = prepare_known_music_candidates(refs, fs=44_100, search_root=tmp_path)
+    assert report["prepared_count"] == 1
+    assert not report["decode_errors"]
+    assert (refs / "type2_cassette_real" / "musik_enc_candidate_encoded.wav").exists()
+    specs = build_case_specs(44_100, reference_dir=refs)
+    assert "cand_musik_enc_candidate" in specs
+    assert specs["cand_musik_enc_candidate"]["group"] == "cassette_music_candidate"
