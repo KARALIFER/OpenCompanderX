@@ -391,3 +391,53 @@ def test_prepare_known_music_candidates_imports_musik_enc_and_exposes_candidate_
     specs = build_case_specs(44_100, reference_dir=refs)
     assert "cand_musik_enc_candidate" in specs
     assert specs["cand_musik_enc_candidate"]["group"] == "cassette_music_candidate"
+
+
+def test_prepare_known_music_candidates_finds_file_recursively(tmp_path):
+    import soundfile as sf
+
+    fs = 44_100
+    t = np.arange(fs // 4) / fs
+    audio = np.column_stack([0.2 * np.sin(2 * np.pi * 400.0 * t), 0.2 * np.sin(2 * np.pi * 800.0 * t)])
+    nested = tmp_path / "nested" / "deeper"
+    nested.mkdir(parents=True)
+    sf.write(nested / "musik_enc.wav", audio, fs)
+    refs = tmp_path / "refs"
+    report = prepare_known_music_candidates(refs, fs=44_100, search_root=tmp_path)
+    assert report["prepared_count"] == 1
+    assert (refs / "type2_cassette_real" / "musik_enc_candidate_encoded.wav").exists()
+
+
+def test_reference_case_discovery_resamples_to_requested_sample_rate(tmp_path):
+    import soundfile as sf
+
+    fs_ref = 48_000
+    fs_target = 44_100
+    ref_root = tmp_path / "refs" / "type2_cassette_real"
+    ref_root.mkdir(parents=True)
+    t = np.arange(fs_ref // 5) / fs_ref
+    src = np.sin(2 * np.pi * 1000.0 * t)
+    enc = 0.8 * src
+    dec = 0.9 * src
+    sf.write(ref_root / "resample_case_source.wav", np.column_stack([src, src]), fs_ref)
+    sf.write(ref_root / "resample_case_encoded.wav", np.column_stack([enc, enc]), fs_ref)
+    sf.write(ref_root / "resample_case_reference_decode.wav", np.column_stack([dec, dec]), fs_ref)
+    (ref_root / "resample_case.json").write_text(
+        json.dumps(
+            {
+                "case_name": "resample_case",
+                "category": "cassette_reference",
+                "source_type": "real",
+                "cassette_priority": True,
+                "license": "CC-BY 4.0",
+                "origin": "unit-test",
+                "notes": "resample test",
+                "trust_level": "medium",
+            }
+        )
+    )
+    specs = build_case_specs(fs_target, reference_dir=tmp_path / "refs", source_type_filter={"real"})
+    case = specs["ref_resample_case"]
+    assert int(case["prepared_sample_rate_hz"]) == fs_target
+    assert int(case["encoded_sample_rate_hz"]) == fs_ref
+    assert np.asarray(case["input"]).shape[0] > 0
