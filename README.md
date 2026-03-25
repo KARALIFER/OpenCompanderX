@@ -6,6 +6,8 @@ This repository contains a robust **Type-II compander decoder** for a fixed targ
 - Teensy Audio Adaptor Rev D/D2 (SGTL5000)
 - Stereo analog Line-In to stereo analog Line-Out/Headphone
 
+This is an independent compatibility project. It is not affiliated with, endorsed by, or sponsored by dbx, HARMAN, or any trademark owner.
+
 ## Current, reproducible status
 
 The current state verifiable in the repository includes:
@@ -307,3 +309,21 @@ The extended cassette-primary harness primarily increases practical validation d
 | Audio Adaptor Board for Teensy 4.0 | [Amazon.de](https://www.amazon.de/dp/B07Z6NW913?ref=ppx_yo2ov_dt_b_fed_asin_title) |
 | RUNCCI-YUN 6pcs 3.5mm TRRS Female Jack to Bare Wire Cable (30 cm) | [Amazon.de](https://www.amazon.de/dp/B0CWR1CPNG?smid=AT0FJ7CZCB0G9&ref_=chk_typ_imgToDp&th=1) |
 | 2.54 mm 40-Pin Male/Female Header Set | [Amazon.de](https://www.amazon.de/dp/B0CWR2TZNX?ref=ppx_yo2ov_dt_b_fed_asin_title) |
+
+## Trademark notice
+
+dbx is a trademark of its respective owner(s).
+
+This project uses the term "dbx Type II" only to describe compatibility with media encoded in that format. No affiliation, sponsorship, endorsement, or official association is claimed.
+
+## Discoverability
+
+This project may also be relevant if you are searching for:
+- dbx Type II decoder
+- dbx type 2 decoder
+- dbx cassette decoder
+- Type II compander decoder
+- Teensy cassette decoder
+- SGTL5000 tape decoder
+
+OpenCompanderX is an independent open-source compatibility project for decoding Type II companded cassette material on Teensy 4.1 hardware.
