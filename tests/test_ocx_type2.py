@@ -15,9 +15,11 @@ import ocx_type2_harness as harness_module
 from ocx_type2_harness import (
     CASSETTE_PRIMARY_FREQS_HZ,
     CASSETTE_PRIMARY_LEVELS_DB,
+    REF_SYNTH_DIRNAME,
     build_case_specs,
     build_cases,
     compare,
+    generate_synthetic_reference_pack,
     evaluate_scores,
     run_detector_study,
     run_tuning,
@@ -338,3 +340,25 @@ def test_partial_reference_coverage_does_not_break_evaluation(tmp_path):
     no_ref = [r for r in rows if r["case"] == "pink_noise"][0]
     assert with_ref["reference_available"] is True
     assert no_ref["reference_available"] is False
+
+
+def test_generate_synthetic_reference_pack_writes_metadata_and_audio(tmp_path):
+    report = generate_synthetic_reference_pack(tmp_path, profile_path=PROFILE_PATH, fs=4000)
+    synth_root = tmp_path / REF_SYNTH_DIRNAME
+    assert report["case_count"] > 0
+    assert (synth_root / "index.json").exists()
+    first = report["cases"][0]["case_name"]
+    assert (synth_root / f"{first}_source.wav").exists()
+    assert (synth_root / f"{first}_encoded.wav").exists()
+    assert (synth_root / f"{first}_reference_decode.wav").exists()
+    meta = json.loads((synth_root / f"{first}.json").read_text())
+    assert meta["source_type"] == "synthetic"
+    assert "approximate" in meta["trust_level"]
+
+
+def test_build_case_specs_can_filter_cassette_priority_and_source_type(tmp_path):
+    generate_synthetic_reference_pack(tmp_path, profile_path=PROFILE_PATH, fs=4000)
+    specs = build_case_specs(4000, reference_dir=tmp_path, source_type_filter={"synthetic"}, cassette_priority_only=True)
+    assert specs
+    assert all(bool(v.get("cassette_priority")) for v in specs.values())
+    assert all(str(v.get("source_type")) == "synthetic" for v in specs.values())

@@ -1,0 +1,20 @@
+{
+  "files": [
+    {
+      "path": "example_case_encoded.wav",
+      "url": "https://example.org/path/to/legal_dbx_type2_encoded.wav"
+    },
+    {
+      "path": "example_case_source.wav",
+      "url": "https://example.org/path/to/legal_source.wav"
+    },
+    {
+      "path": "example_case_reference_decode.wav",
+      "url": "https://example.org/path/to/legal_reference_decode.wav"
+    },
+    {
+      "path": "example_case.json",
+      "url": "https://example.org/path/to/example_case_metadata.json"
+    }
+  ]
+}

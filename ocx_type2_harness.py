@@ -8,6 +8,8 @@ import itertools
 import json
 from pathlib import Path
 import re
+import shutil
+import urllib.request
 
 import numpy as np
 
@@ -306,13 +308,22 @@ def evaluate_scores(metrics: list[dict[str, float | bool | int | None]]) -> dict
             plausibility_score -= 1.5 * max(0.0, float(row["freq_delta_mid_db"]) - 3.5)
             plausibility_score -= 3.0 * max(0.0, float(row["overshoot_delta"]) - 0.15)
             plausibility_score -= 3.0 * max(0.0, float(row["undershoot_delta"]) - 0.15)
+        if str(row.get("case_group", "")) == "music_like":
+            plausibility_score -= 1.8 * max(0.0, float(row["freq_delta_high_db"]) - 4.0)
+            plausibility_score -= 1.6 * max(0.0, float(row["freq_delta_low_db"]) - 4.0)
+            plausibility_score -= 12.0 * max(0.0, float(row["gain_curve_diff_std_db"]) - 1.0)
         if row["mse_vs_reference"] is not None:
             reference_cases += 1
-            reference_score += 100.0
-            reference_score -= 1000.0 * float(row["mse_vs_reference"])
-            reference_score -= 1.7 * float(row["freq_response_delta_db_vs_reference"])
-            reference_score -= 7.0 * float(row["transient_delta_vs_reference"])
-            reference_score -= 45.0 * max(0.0, 0.90 - float(row["correlation_vs_reference"]))
+            source_type = str(row.get("reference_source_type", "synthetic"))
+            trust = str(row.get("reference_trust_level", "approximate"))
+            real_weight = 1.4 if source_type == "real" else 1.0
+            trust_weight = {"high": 1.2, "medium": 1.0, "approximate": 0.85, "low": 0.7}.get(trust, 1.0)
+            w = real_weight * trust_weight
+            reference_score += 100.0 * w
+            reference_score -= 1000.0 * w * float(row["mse_vs_reference"])
+            reference_score -= 1.7 * w * float(row["freq_response_delta_db_vs_reference"])
+            reference_score -= 7.0 * w * float(row["transient_delta_vs_reference"])
+            reference_score -= 45.0 * w * max(0.0, 0.90 - float(row["correlation_vs_reference"]))
 
     if means:
         mean_spread = float(np.max(means) - np.min(means))
@@ -515,40 +526,258 @@ def _synthetic_case_specs(fs: int) -> dict[str, dict[str, object]]:
     return specs
 
 
+
+
+REF_REAL_DIRNAME = "type2_cassette_real"
+REF_SYNTH_DIRNAME = "type2_cassette_synth"
+
+
+def _approx_type2_encode(source: np.ndarray, fs: int, strength: float = 1.0, reference_db: float = -18.0) -> np.ndarray:
+    src = ensure_stereo(source)
+    out = np.zeros_like(src)
+    env = np.full(2, 1.0e-9, dtype=np.float64)
+    attack = np.exp(-1.0 / max(fs * 0.004, 1.0))
+    release = np.exp(-1.0 / max(fs * 0.180, 1.0))
+    max_encode_db = 14.0
+    for i in range(src.shape[0]):
+        x = src[i]
+        level2 = np.maximum(np.square(x), 1.0e-12)
+        up = level2 > env
+        env = np.where(up, attack * env + (1.0 - attack) * level2, release * env + (1.0 - release) * level2)
+        in_db = 10.0 * np.log10(np.maximum(env, 1.0e-12))
+        target_db = np.clip((reference_db - in_db) * 0.45 * strength, -max_encode_db, max_encode_db)
+        gain = 10.0 ** (target_db / 20.0)
+        out[i] = np.clip(x * gain, -1.0, 1.0)
+    return ensure_stereo(out)
+
+
+def _write_ref_case(
+    root: Path,
+    case_name: str,
+    category: str,
+    source: np.ndarray,
+    encoded: np.ndarray,
+    reference_decode: np.ndarray,
+    source_type: str,
+    license_name: str,
+    origin: str,
+    notes: str,
+    trust_level: str,
+    cassette_priority: bool = True,
+    fs: int = 44_100,
+) -> dict[str, object]:
+    source = ensure_stereo(source)
+    encoded = ensure_stereo(encoded)
+    reference_decode = ensure_stereo(reference_decode)
+    write_audio(root / f"{case_name}_source.wav", fs, source)
+    write_audio(root / f"{case_name}_encoded.wav", fs, encoded)
+    write_audio(root / f"{case_name}_reference_decode.wav", fs, reference_decode)
+    meta = {
+        "case_name": case_name,
+        "category": category,
+        "source_type": source_type,
+        "cassette_priority": bool(cassette_priority),
+        "license": license_name,
+        "origin": origin,
+        "notes": notes,
+        "trust_level": trust_level,
+    }
+    (root / f"{case_name}.json").write_text(json.dumps(meta, indent=2))
+    return meta
+
+
+def generate_synthetic_reference_pack(reference_root: Path, profile_path: Path = PROFILE_PATH, fs: int = 44_100) -> dict[str, object]:
+    synth_root = reference_root / REF_SYNTH_DIRNAME
+    if synth_root.exists():
+        shutil.rmtree(synth_root)
+    synth_root.mkdir(parents=True, exist_ok=True)
+    params = Params.from_profile(profile_path)
+    decoder = Decoder(fs, params)
+    specs = _synthetic_case_specs(fs)
+
+    created = []
+    for name, spec in specs.items():
+        src = ensure_stereo(np.asarray(spec["input"]))
+        enc = _approx_type2_encode(src, fs=fs, strength=1.0, reference_db=params.reference_db)
+        decoder.reset()
+        ref_dec = decoder.process(enc)
+        category = str(spec.get("group", "synthetic"))
+        note = (
+            "Synthetic cassette-priority case generated from internal signal model and an "
+            "approximate Type-II-like encoder. Not historically verified as original dbx standard behavior."
+        )
+        created.append(
+            _write_ref_case(
+                synth_root,
+                case_name=name,
+                category=category,
+                source=src,
+                encoded=enc,
+                reference_decode=ref_dec,
+                source_type="synthetic",
+                license_name="CC0-1.0",
+                origin="OpenCompanderX synthetic generator",
+                notes=note,
+                trust_level="approximate",
+                cassette_priority=bool(str(category).startswith("cassette") or category in {"music_like", "dynamic", "broadband"}),
+                fs=fs,
+            )
+        )
+    index = {
+        "generated_utc": "static-local-run",
+        "profile": str(profile_path),
+        "sample_rate_hz": fs,
+        "case_count": len(created),
+        "cases": created,
+        "encoder_disclaimer": "Synthetic only. Internal approximate encoder is a methodology tool, not proof of historical dbx Type-II conformance.",
+    }
+    (synth_root / "index.json").write_text(json.dumps(index, indent=2))
+    return index
+
+
+def load_reference_metadata(case_base: str, encoded_path: Path) -> dict[str, object]:
+    meta_path = encoded_path.with_name(f"{case_base}.json")
+    if not meta_path.exists():
+        return {
+            "case_name": case_base,
+            "category": "unknown",
+            "source_type": "unknown",
+            "cassette_priority": False,
+            "license": "unspecified",
+            "origin": "unspecified",
+            "notes": "metadata missing",
+            "trust_level": "unknown",
+        }
+    try:
+        payload = json.loads(meta_path.read_text())
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+    return {
+        "case_name": case_base,
+        "category": "invalid",
+        "source_type": "unknown",
+        "cassette_priority": False,
+        "license": "unspecified",
+        "origin": "invalid-metadata",
+        "notes": "metadata parse failed",
+        "trust_level": "low",
+    }
+
+
+def index_real_references(reference_root: Path) -> dict[str, object]:
+    real_root = reference_root / REF_REAL_DIRNAME
+    real_root.mkdir(parents=True, exist_ok=True)
+    cases = []
+    for encoded in sorted(real_root.glob("*_encoded.wav")):
+        base = re.sub(r"_encoded$", "", encoded.stem)
+        meta = load_reference_metadata(base, encoded)
+        meta["has_source"] = encoded.with_name(f"{base}_source.wav").exists()
+        meta["has_reference_decode"] = encoded.with_name(f"{base}_reference_decode.wav").exists()
+        cases.append(meta)
+    report = {"root": str(real_root), "case_count": len(cases), "cases": cases}
+    (real_root / "index.json").write_text(json.dumps(report, indent=2))
+    return report
+
+
+def fetch_real_references_from_manifest(reference_root: Path, manifest_path: Path) -> dict[str, object]:
+    real_root = reference_root / REF_REAL_DIRNAME
+    real_root.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads(manifest_path.read_text())
+    entries = manifest.get("files", []) if isinstance(manifest, dict) else []
+    downloaded = []
+    skipped = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        rel = str(item.get("path", "")).strip()
+        if not url or not rel:
+            continue
+        dest = real_root / rel
+        if dest.exists():
+            skipped.append(rel)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(url, dest)
+        downloaded.append(rel)
+    return {"manifest": str(manifest_path), "downloaded": downloaded, "skipped": skipped, "downloaded_count": len(downloaded)}
+
+
+def _match_source_type(spec: dict[str, object], source_types: set[str]) -> bool:
+    if "all" in source_types:
+        return True
+    st = str(spec.get("source_type", "synthetic"))
+    return st in source_types
+
+
+def _is_cassette_priority(spec: dict[str, object]) -> bool:
+    return bool(spec.get("cassette_priority", False))
+
+
 def discover_reference_case_specs(reference_dir: Path, fs: int) -> dict[str, dict[str, object]]:
     specs: dict[str, dict[str, object]] = {}
-    cassette_root = reference_dir / "type2_cassette"
-    search_root = cassette_root if cassette_root.exists() else reference_dir
-    for encoded in sorted(search_root.rglob("*_encoded.wav")):
-        base = re.sub(r"_encoded$", "", encoded.stem)
-        source = encoded.with_name(f"{base}_source.wav")
-        if not source.exists():
+    search_roots = [reference_dir / REF_REAL_DIRNAME, reference_dir / REF_SYNTH_DIRNAME, reference_dir / "type2_cassette", reference_dir]
+    for root in search_roots:
+        if not root.exists():
             continue
-        ref_decode = encoded.with_name(f"{base}_reference_decode.wav")
-        enc_fs, enc_audio = read_audio(encoded)
-        src_fs, src_audio = read_audio(source)
-        if enc_fs != fs or src_fs != fs:
-            continue
-        case_name = f"ref_{base}"
-        spec: dict[str, object] = {
-            "input": ensure_stereo(enc_audio),
-            "source_target": ensure_stereo(src_audio),
-            "group": "cassette_reference",
-            "reference_layout": "pair_encoded_source",
-            "reference_case_base": base,
-        }
-        if ref_decode.exists():
-            ref_fs, ref_audio = read_audio(ref_decode)
-            if ref_fs == fs:
-                spec["reference_decode"] = ensure_stereo(ref_audio)
-        specs[case_name] = spec
+        for encoded in sorted(root.glob("*_encoded.wav")):
+            base = re.sub(r"_encoded$", "", encoded.stem)
+            source = encoded.with_name(f"{base}_source.wav")
+            if not source.exists():
+                continue
+            ref_decode = encoded.with_name(f"{base}_reference_decode.wav")
+            enc_fs, enc_audio = read_audio(encoded)
+            src_fs, src_audio = read_audio(source)
+            if enc_fs != fs or src_fs != fs:
+                continue
+            metadata = load_reference_metadata(base, encoded)
+            case_name = f"ref_{base}"
+            spec: dict[str, object] = {
+                "input": ensure_stereo(enc_audio),
+                "source_target": ensure_stereo(src_audio),
+                "group": "cassette_reference",
+                "reference_layout": "pair_encoded_source",
+                "reference_case_base": base,
+                "source_type": str(metadata.get("source_type", "unknown")),
+                "cassette_priority": bool(metadata.get("cassette_priority", False)),
+                "license": str(metadata.get("license", "unspecified")),
+                "origin": str(metadata.get("origin", "unspecified")),
+                "notes": str(metadata.get("notes", "")),
+                "trust_level": str(metadata.get("trust_level", "unknown")),
+                "category": str(metadata.get("category", "cassette_reference")),
+            }
+            if ref_decode.exists():
+                ref_fs, ref_audio = read_audio(ref_decode)
+                if ref_fs == fs:
+                    spec["reference_decode"] = ensure_stereo(ref_audio)
+            specs[case_name] = spec
     return specs
 
 
-def build_case_specs(fs: int, reference_dir: Path | None = None) -> dict[str, dict[str, object]]:
+def build_case_specs(
+    fs: int,
+    reference_dir: Path | None = None,
+    source_type_filter: set[str] | None = None,
+    cassette_priority_only: bool = False,
+) -> dict[str, dict[str, object]]:
     specs = _synthetic_case_specs(fs)
+    for spec in specs.values():
+        group = str(spec.get("group", "synthetic"))
+        spec["source_type"] = "synthetic"
+        spec["cassette_priority"] = bool(group.startswith("cassette") or group in {"music_like", "dynamic", "broadband"})
+        spec["license"] = "CC0-1.0"
+        spec["origin"] = "OpenCompanderX synthetic harness"
+        spec["notes"] = "Generated in harness; synthetic approximative signal case."
+        spec["trust_level"] = "approximate"
+        spec["category"] = group
     if reference_dir is not None:
         specs.update(discover_reference_case_specs(reference_dir, fs))
+    if source_type_filter:
+        specs = {k: v for k, v in specs.items() if _match_source_type(v, source_type_filter)}
+    if cassette_priority_only:
+        specs = {k: v for k, v in specs.items() if _is_cassette_priority(v)}
     return specs
 
 
@@ -631,6 +860,13 @@ def evaluate_candidate(
             "output_clip_r": bool(decoder.output_clip[1]),
             "reference_available": ref is not None,
             "source_available": source is not None,
+            "reference_source_type": str(spec.get("source_type", "synthetic")),
+            "reference_trust_level": str(spec.get("trust_level", "approximate")),
+            "reference_license": str(spec.get("license", "CC0-1.0")),
+            "reference_origin": str(spec.get("origin", "OpenCompanderX synthetic harness")),
+            "reference_notes": str(spec.get("notes", "")),
+            "cassette_priority": bool(spec.get("cassette_priority", False)),
+            "case_category": str(spec.get("category", spec.get("group", "unknown"))),
         }
         if "frequency_hz" in spec:
             row["matrix_frequency_hz"] = float(spec["frequency_hz"])  # type: ignore[assignment]
@@ -713,7 +949,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
-    ap.add_argument("--reference-dir", type=Path)
+    ap.add_argument("--reference-dir", type=Path, default=Path("refs"))
+    ap.add_argument("--reference-source", choices=["all", "real", "synthetic"], default="all")
+    ap.add_argument("--cassette-priority-only", action="store_true")
+    ap.add_argument("--generate-synth-refs", action="store_true", help="Generate reproducible synthetic Type-II cassette reference pack.")
+    ap.add_argument("--index-real-refs", action="store_true", help="Index available real reference files and metadata.")
+    ap.add_argument("--fetch-real-refs-manifest", type=Path, help="Optional JSON manifest with legally usable real-reference file URLs.")
     ap.add_argument("--write-wavs", action="store_true")
     ap.add_argument("--override", action="append", default=[], help="Decoder override key=value (repeatable)")
     ap.add_argument("--tune", action="store_true", help="Run a compact grid search and report the best candidate.")
@@ -726,9 +967,21 @@ def main() -> None:
 
     profile = json.loads(args.profile.read_text())
     fs = int(profile["sample_rate_hz"])
-    case_specs = build_case_specs(fs, args.reference_dir)
-    user_overrides = parse_override_pairs(args.override)
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    ref_reports: dict[str, object] = {}
+    if args.fetch_real_refs_manifest is not None:
+        ref_reports["fetch_real_refs"] = fetch_real_references_from_manifest(args.reference_dir, args.fetch_real_refs_manifest)
+    if args.generate_synth_refs:
+        ref_reports["generate_synth_refs"] = generate_synthetic_reference_pack(args.reference_dir, profile_path=args.profile, fs=fs)
+    if args.index_real_refs:
+        ref_reports["index_real_refs"] = index_real_references(args.reference_dir)
+
+    src_filter = {args.reference_source}
+    if args.reference_source == "all":
+        src_filter = {"all"}
+    case_specs = build_case_specs(fs, args.reference_dir, source_type_filter=src_filter, cassette_priority_only=args.cassette_priority_only)
+    user_overrides = parse_override_pairs(args.override)
 
     results = evaluate_candidate(args.profile, fs, case_specs, user_overrides, args.reference_dir)
     if args.write_wavs:
@@ -750,6 +1003,26 @@ def main() -> None:
         "source_cases": int(sum(1 for row in results if bool(row["source_available"]))),
         "cassette_primary_cases": int(sum(1 for row in results if str(row.get("case_group", "")).startswith("cassette"))),
     }
+    source_breakdown = {
+        "real": int(sum(1 for row in results if str(row.get("reference_source_type", "")) == "real")),
+        "synthetic": int(sum(1 for row in results if str(row.get("reference_source_type", "")) == "synthetic")),
+        "unknown": int(sum(1 for row in results if str(row.get("reference_source_type", "")) not in {"real", "synthetic"})),
+    }
+    summary["reference_source_breakdown"] = source_breakdown
+    summary["cassette_priority_only"] = bool(args.cassette_priority_only)
+    summary["reference_source_filter"] = args.reference_source
+    if ref_reports:
+        summary["reference_pipeline"] = ref_reports
+        (args.out_dir / "reference_pipeline.json").write_text(json.dumps(ref_reports, indent=2))
+
+    synthetic_rows = [r for r in results if str(r.get("reference_source_type", "synthetic")) == "synthetic"]
+    real_rows = [r for r in results if str(r.get("reference_source_type", "synthetic")) == "real"]
+    split = {
+        "all": evaluate_scores(results),
+        "synthetic": evaluate_scores(synthetic_rows) if synthetic_rows else None,
+        "real": evaluate_scores(real_rows) if real_rows else None,
+    }
+    (args.out_dir / "split_summary.json").write_text(json.dumps(split, indent=2))
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     try:
         import pandas as pd
