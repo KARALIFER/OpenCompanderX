@@ -310,6 +310,221 @@ The extended cassette-primary harness primarily increases practical validation d
 | RUNCCI-YUN 6pcs 3.5mm TRRS Female Jack to Bare Wire Cable (30 cm) | [Amazon.de](https://www.amazon.de/dp/B0CWR1CPNG?smid=AT0FJ7CZCB0G9&ref_=chk_typ_imgToDp&th=1) |
 | 2.54 mm 40-Pin Male/Female Header Set | [Amazon.de](https://www.amazon.de/dp/B0CWR2TZNX?ref=ppx_yo2ov_dt_b_fed_asin_title) |
 
+## Flash firmware on Windows with Arduino IDE
+
+This firmware can be flashed on **Windows** with **Arduino IDE 2.x**.
+
+You only need the firmware file:
+
+```text
+ocx_type2_teensy41_decoder.ino
+```
+
+Target board:
+
+```text
+Teensy 4.1
+```
+
+---
+
+## What you need
+
+- **Arduino IDE 2.x**
+- **Teensy 4.1**
+- **USB data cable**
+- the firmware file:
+  ```text
+  ocx_type2_teensy41_decoder.ino
+  ```
+
+---
+
+## 1. Install Arduino IDE
+
+Install **Arduino IDE 2.x** on Windows and start it once.
+
+---
+
+## 2. Add Teensy board support
+
+Open **Arduino IDE** and go to:
+
+- **File -> Preferences**
+
+In **Additional boards manager URLs**, add:
+
+```text
+https://www.pjrc.com/teensy/package_teensy_index.json
+```
+
+Click **OK**.
+
+---
+
+## 3. Install the Teensy package
+
+Open **Boards Manager** in Arduino IDE.
+
+Search for:
+
+```text
+Teensy
+```
+
+Install the **Teensy** package.
+
+Wait until the installation is fully finished.
+
+---
+
+## 4. Download only the firmware file
+
+Download this file from GitHub:
+
+```text
+https://raw.githubusercontent.com/KARALIFER/OpenCompanderX/main/ocx_type2_teensy41_decoder.ino
+```
+
+Save it as:
+
+```text
+ocx_type2_teensy41_decoder.ino
+```
+
+---
+
+## 5. Put the file into its own sketch folder
+
+Create a folder with this exact name:
+
+```text
+ocx_type2_teensy41_decoder
+```
+
+Place the file
+
+```text
+ocx_type2_teensy41_decoder.ino
+```
+
+inside that folder.
+
+The result must look like this:
+
+```text
+ocx_type2_teensy41_decoder/
+└── ocx_type2_teensy41_decoder.ino
+```
+
+This is required because Arduino IDE expects the sketch file name and folder name to match.
+
+---
+
+## 6. Open the firmware file
+
+Open this file in Arduino IDE:
+
+```text
+ocx_type2_teensy41_decoder.ino
+```
+
+---
+
+## 7. Connect the board
+
+Connect the **Teensy 4.1** to your PC with a **USB data cable**.
+
+---
+
+## 8. Select the correct board
+
+In Arduino IDE, click **Select Board** and choose:
+
+```text
+Teensy 4.1
+```
+
+---
+
+## 9. Set the correct options
+
+Use these settings in Arduino IDE:
+
+- **Board:** `Teensy 4.1`
+- **USB Type:** `Serial`
+- **CPU Speed:** `600 MHz`
+
+If available, also set:
+
+- **Optimize:** `Fastest`
+
+---
+
+## 10. Upload the firmware
+
+Click **Upload** in Arduino IDE.
+
+Arduino IDE will compile the sketch and flash it to the Teensy.
+
+If the upload does not start automatically:
+
+- press the **Program** button on the Teensy once
+
+After the upload finishes, the firmware is written to the board.
+
+---
+
+## Troubleshooting
+
+### Teensy is not shown in Arduino IDE
+
+Make sure this URL was added exactly:
+
+```text
+https://www.pjrc.com/teensy/package_teensy_index.json
+```
+
+Then reopen **Boards Manager** and search again for:
+
+```text
+Teensy
+```
+
+---
+
+### Board is not detected
+
+- use a real **USB data cable**
+- try another USB port
+- reconnect the board
+- press the **Program** button on the Teensy
+- restart Arduino IDE
+
+---
+
+### Upload does not start
+
+- make sure **Teensy 4.1** is selected
+- press the **Program** button on the Teensy
+- reconnect USB
+- click **Upload** again
+
+---
+
+## Quick summary
+
+1. Install **Arduino IDE 2.x**
+2. Add the Teensy boards URL
+3. Install **Teensy** in Boards Manager
+4. Download `ocx_type2_teensy41_decoder.ino`
+5. Put it into a folder named `ocx_type2_teensy41_decoder`
+6. Open it in Arduino IDE
+7. Select **Teensy 4.1**
+8. Set **USB Type = Serial**
+9. Set **CPU Speed = 600 MHz**
+10. Click **Upload**
+
 ## Trademark notice
 
 dbx is a trademark of its respective owner(s).
