@@ -120,6 +120,30 @@ def test_tuning_rerank_uses_44100_final_stage():
     assert run["final_fs"] == 44_100
 
 
+def test_tuning_honors_requested_mode():
+    seen_modes: list[str] = []
+    original_eval = harness_module.evaluate_candidate
+    original_cases = harness_module.build_cases
+
+    def tiny_cases(_: int):
+        return {"a": np.zeros((256, 2), dtype=np.float64), "b": np.full((256, 2), 0.03, dtype=np.float64)}
+
+    def wrapped_eval(*args, **kwargs):
+        seen_modes.append(str(kwargs.get("mode", "")))
+        return original_eval(*args, **kwargs)
+
+    harness_module.build_cases = tiny_cases
+    harness_module.evaluate_candidate = wrapped_eval
+    try:
+        run_tuning(PROFILE_PATH, tune_fs=4000, final_fs=44_100, top_k=1, max_candidates=1, mode="roundtrip")
+    finally:
+        harness_module.evaluate_candidate = original_eval
+        harness_module.build_cases = original_cases
+
+    assert seen_modes
+    assert all(m == "roundtrip" for m in seen_modes)
+
+
 def test_detector_study_reports_both_modes():
     original = harness_module.build_cases
 
@@ -133,6 +157,28 @@ def test_detector_study_reports_both_modes():
         harness_module.build_cases = original
     assert "energy" in report
     assert "rms" in report
+
+
+def test_detector_study_honors_requested_mode():
+    seen_modes: list[str] = []
+    original_eval = harness_module.evaluate_candidate
+    original_cases = harness_module.build_cases
+
+    def tiny_cases(_: int):
+        return {"a": np.zeros((256, 2), dtype=np.float64), "b": np.full((256, 2), 0.03, dtype=np.float64)}
+
+    def wrapped_eval(*args, **kwargs):
+        seen_modes.append(str(kwargs.get("mode", "")))
+        return original_eval(*args, **kwargs)
+
+    harness_module.build_cases = tiny_cases
+    harness_module.evaluate_candidate = wrapped_eval
+    try:
+        run_detector_study(PROFILE_PATH, fs=44_100, mode="roundtrip")
+    finally:
+        harness_module.evaluate_candidate = original_eval
+        harness_module.build_cases = original_cases
+    assert seen_modes == ["roundtrip", "roundtrip"]
 
 
 def test_profile_and_firmware_defaults_are_synced():

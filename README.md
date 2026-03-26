@@ -210,6 +210,8 @@ python ocx_type2_harness.py --tune --tune-fs 4000 --tune-final-fs 44100 --tune-t
 python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detector
 ```
 
+Note: `--mode` is honored for tuning and detector-study invocations as well (for example `--mode roundtrip` runs roundtrip evaluation inside those studies).
+
 ## Hardware telemetry and evaluation
 
 ### Firmware commands

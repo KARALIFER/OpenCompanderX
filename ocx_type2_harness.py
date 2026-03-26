@@ -1017,7 +1017,7 @@ def evaluate_candidate(
     return rows
 
 
-def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_candidates: int = 2) -> dict[str, object]:
+def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_candidates: int = 2, mode: str = "decode") -> dict[str, object]:
     base = json.loads(profile_path.read_text())["decoder"]
     grid = {
         "strength": [base["strength"], min(1.25, base["strength"] + 0.06)],
@@ -1045,7 +1045,7 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
         if idx >= max(1, max_candidates):
             break
         cand = {k: float(v) for k, v in zip(keys, values)}
-        rows = evaluate_candidate(profile_path, tune_fs, coarse_cases, mode="decode", overrides=cand)
+        rows = evaluate_candidate(profile_path, tune_fs, coarse_cases, mode=mode, overrides=cand)
         score = evaluate_scores(rows)
         coarse_results.append({"params": cand, **score})
 
@@ -1055,13 +1055,14 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
     final_results = []
     for item in finalists:
         cand = item["params"]
-        rows = evaluate_candidate(profile_path, final_fs, final_cases, mode="decode", overrides=cand)
+        rows = evaluate_candidate(profile_path, final_fs, final_cases, mode=mode, overrides=cand)
         score = evaluate_scores(rows)
         final_results.append({"params": cand, **score, "coarse_score_total": item["score_total"]})
 
     final_results.sort(key=lambda x: float(x["score_total"]), reverse=True)
     return {
         "method": "two_stage_tuning",
+        "mode": mode,
         "selection_basis": "final_stage_only",
         "coarse_stage_role": "prescan_only_not_final_decision",
         "coarse_fs": tune_fs,
@@ -1075,12 +1076,13 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
     }
 
 
-def run_detector_study(profile_path: Path, fs: int) -> dict[str, object]:
+def run_detector_study(profile_path: Path, fs: int, mode: str = "decode") -> dict[str, object]:
     cases = {k: v[: min(len(v), 2048)] for k, v in select_tuning_cases(build_cases(fs)).items()}
-    energy = evaluate_candidate(profile_path, fs, cases, mode="decode", overrides={"detector_mode": "energy"})
-    rms = evaluate_candidate(profile_path, fs, cases, mode="decode", overrides={"detector_mode": "rms", "detector_rms_ms": 6.0})
+    energy = evaluate_candidate(profile_path, fs, cases, mode=mode, overrides={"detector_mode": "energy"})
+    rms = evaluate_candidate(profile_path, fs, cases, mode=mode, overrides={"detector_mode": "rms", "detector_rms_ms": 6.0})
     return {
         "fs": fs,
+        "mode": mode,
         "energy": evaluate_scores(energy),
         "rms": evaluate_scores(rms),
         "cpu_note": "rms mode adds one extra detector IIR state/update per sample and channel in simulator.",
@@ -1128,10 +1130,11 @@ def main() -> None:
                 final_fs=int(max(4000, args.tune_final_fs)),
                 top_k=int(max(1, args.tune_top_k)),
                 max_candidates=int(max(1, args.tune_max_candidates)),
+                mode=args.mode,
             )
             (args.out_dir / "tuning_best.json").write_text(json.dumps(tuning, indent=2))
         if args.detector_study:
-            study = run_detector_study(args.profile, fs=fs)
+            study = run_detector_study(args.profile, fs=fs, mode=args.mode)
             (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
         return
 

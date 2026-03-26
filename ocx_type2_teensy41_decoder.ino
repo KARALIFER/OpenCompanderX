@@ -275,11 +275,15 @@ public:
     for (int ch = 0; ch < 2; ++ch) {
       scHP[ch].reset();
       scShelf[ch].reset();
+      encScHP[ch].reset();
+      encScShelf[ch].reset();
       deemph[ch].reset();
       encTilt[ch].reset();
       dcBlock[ch].reset();
+      encDcBlock[ch].reset();
     }
     linkedEnv2 = 1.0e-9f;
+    encLinkedEnv2 = 1.0e-9f;
     noInterrupts();
     diagLastGainDb = 0.0f;
     diagLastEnvDb = -120.0f;
@@ -313,12 +317,22 @@ private:
   float sidechainShelfDb = 16.0f;
   Biquad scHP[2];
   Biquad scShelf[2];
+  float encSidechainHpHz = OCXProfile::kEncSidechainHpHz;
+  float encSidechainShelfHz = OCXProfile::kEncSidechainShelfHz;
+  float encSidechainShelfDb = OCXProfile::kEncSidechainShelfDb;
+  Biquad encScHP[2];
+  Biquad encScShelf[2];
 
   float attackMs = 3.5f;
   float releaseMs = 140.0f;
   float attackCoeff = 0.0f;
   float releaseCoeff = 0.0f;
   float linkedEnv2 = 1.0e-9f;
+  float encAttackMs = OCXProfile::kEncAttackMs;
+  float encReleaseMs = OCXProfile::kEncReleaseMs;
+  float encAttackCoeff = 0.0f;
+  float encReleaseCoeff = 0.0f;
+  float encLinkedEnv2 = 1.0e-9f;
 
   float deemphHz = 1850.0f;
   float deemphDb = -6.0f;
@@ -327,6 +341,8 @@ private:
   float softClipDrive = 1.08f;
   float dcBlockHz = 12.0f;
   OnePoleHP dcBlock[2];
+  float encDcBlockHz = OCXProfile::kEncDcBlockHz;
+  OnePoleHP encDcBlock[2];
   float encInputGain = 1.0f;
   float encOutputGain = 1.0f;
   float encHeadroomGain = 1.0f;
@@ -377,9 +393,12 @@ private:
     setOutputTrimDb(outputTrimDb);
     setHeadroomDb(headroomDb);
     recalcSidechainFilters();
+    recalcEncoderSidechainFilters();
     recalcDetector();
+    recalcEncoderDetector();
     recalcDeemphFilter();
     recalcDcBlockers();
+    recalcEncoderDcBlockers();
     encInputGain = dbToLin(OCXProfile::kEncInputTrimDb);
     encOutputGain = dbToLin(OCXProfile::kEncOutputTrimDb);
     encHeadroomGain = dbToLin(-OCXProfile::kEncHeadroomDb);
@@ -390,11 +409,21 @@ private:
     attackCoeff  = expf(-1.0f / (OCXProfile::kFs * attackMs  * 0.001f));
     releaseCoeff = expf(-1.0f / (OCXProfile::kFs * releaseMs * 0.001f));
   }
+  void recalcEncoderDetector() {
+    encAttackCoeff = expf(-1.0f / (OCXProfile::kFs * encAttackMs * 0.001f));
+    encReleaseCoeff = expf(-1.0f / (OCXProfile::kFs * encReleaseMs * 0.001f));
+  }
 
   void recalcSidechainFilters() {
     for (int ch = 0; ch < 2; ++ch) {
       designHighpass(scHP[ch], OCXProfile::kFs, sidechainHpHz, 0.7071f);
       designHighShelf(scShelf[ch], OCXProfile::kFs, sidechainShelfHz, sidechainShelfDb, 0.8f);
+    }
+  }
+  void recalcEncoderSidechainFilters() {
+    for (int ch = 0; ch < 2; ++ch) {
+      designHighpass(encScHP[ch], OCXProfile::kFs, encSidechainHpHz, 0.7071f);
+      designHighShelf(encScShelf[ch], OCXProfile::kFs, encSidechainShelfHz, encSidechainShelfDb, 0.8f);
     }
   }
 
@@ -404,6 +433,9 @@ private:
 
   void recalcDcBlockers() {
     for (int ch = 0; ch < 2; ++ch) dcBlock[ch].design(OCXProfile::kFs, dcBlockHz);
+  }
+  void recalcEncoderDcBlockers() {
+    for (int ch = 0; ch < 2; ++ch) encDcBlock[ch].design(OCXProfile::kFs, encDcBlockHz);
   }
 
   inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive) {
@@ -445,12 +477,12 @@ private:
   }
 
   inline void processEncode(float xL, float xR, float &outL, float &outR) {
-    const float scL = scShelf[0].process(scHP[0].process(xL));
-    const float scR = scShelf[1].process(scHP[1].process(xR));
+    const float scL = encScShelf[0].process(encScHP[0].process(xL));
+    const float scR = encScShelf[1].process(encScHP[1].process(xR));
     const float linkedP = fmaxf(scL * scL, scR * scR);
-    const float coeff = (linkedP > linkedEnv2) ? attackCoeff : releaseCoeff;
-    linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedP);
-    const float env = sqrtf(linkedEnv2 + 1.0e-12f);
+    const float coeff = (linkedP > encLinkedEnv2) ? encAttackCoeff : encReleaseCoeff;
+    encLinkedEnv2 = sanitizef(coeff * encLinkedEnv2 + (1.0f - coeff) * linkedP);
+    const float env = sqrtf(encLinkedEnv2 + 1.0e-12f);
     const float rawGainDb = -((linToDb(env) - encReferenceDb) * encStrength);
     const float gainDb = clampf(rawGainDb, -encMaxCutDb, encMaxBoostDb);
     diagLastGainDb = gainDb;
@@ -474,8 +506,8 @@ private:
     ++diagSampleCount;
 
     const float modeInputGain = (mode == MODE_ENCODE) ? encInputGain : inputGain;
-    float xL = dcBlock[0].process(sanitizef(inL) * modeInputGain);
-    float xR = dcBlock[1].process(sanitizef(inR) * modeInputGain);
+    float xL = (mode == MODE_ENCODE ? encDcBlock[0].process(sanitizef(inL) * modeInputGain) : dcBlock[0].process(sanitizef(inL) * modeInputGain));
+    float xR = (mode == MODE_ENCODE ? encDcBlock[1].process(sanitizef(inR) * modeInputGain) : dcBlock[1].process(sanitizef(inR) * modeInputGain));
     if (fabsf(xL) > 0.98f) {
       inputClipFlag = true;
       ++inputClipCount;

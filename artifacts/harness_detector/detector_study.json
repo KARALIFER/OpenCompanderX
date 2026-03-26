@@ -1,8 +1,9 @@
 {
   "fs": 44100,
+  "mode": "roundtrip",
   "energy": {
-    "score_total": -2623.5086582931326,
-    "score_plausibility": -2623.5086582931326,
+    "score_total": -2523.5518294447174,
+    "score_plausibility": -2523.5518294447174,
     "score_reference": 0.0,
     "reference_case_count": 0,
     "cassette_primary_case_count": 0,
@@ -10,8 +11,8 @@
     "tone_matrix_gain_spread_db": 0.0
   },
   "rms": {
-    "score_total": -2551.6464094058133,
-    "score_plausibility": -2551.6464094058133,
+    "score_total": -2583.6092575202247,
+    "score_plausibility": -2583.6092575202247,
     "score_reference": 0.0,
     "reference_case_count": 0,
     "cassette_primary_case_count": 0,
