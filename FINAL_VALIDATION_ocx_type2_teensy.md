@@ -203,3 +203,13 @@ Finale Auswahl bleibt an 44.1-kHz-Ergebnissen gebunden; Low-Rate-Sweeps dienen n
 Der 400-Hz-Kalibrierton bleibt **post-decoder** in den Ausgangsmix eingespeist.
 Mit `k` kann der Modus zwischen `BOTH`, `LEFT` und `RIGHT` umgeschaltet werden, um Kanalrouting, Vertauschung, Kanalverlust oder Pegeldifferenzen auf realer Hardware schnell zu prüfen.
 Dieser Modus ist ein Output-/Verdrahtungstest und **kein** Decoder-Eingangstest.
+
+
+## 2026 codec-mode update
+
+- Firmware/simulator architecture now supports **decode** and **encode** modes, with mode-select persistence across reboot via EEPROM-backed settings.
+- Default project sample-rate remains **44.1 kHz** (primary target).
+- Encoder feasibility is based on offline Python encode/roundtrip validation artifacts in `artifacts/`.
+- Broadband and mixed-material behavior remains the main caution area.
+- No claim is made of historical dbx Type-II exact equivalence.
+- Firmware validity still depends on green Python gates and successful `pio run -e teensy41`.

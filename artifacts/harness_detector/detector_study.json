@@ -1,0 +1,24 @@
+{
+  "fs": 44100,
+  "mode": "roundtrip",
+  "energy": {
+    "score_total": -2523.5518294447174,
+    "score_plausibility": -2523.5518294447174,
+    "score_reference": 0.0,
+    "reference_case_count": 0,
+    "cassette_primary_case_count": 0,
+    "tone_matrix_coverage": 0.0,
+    "tone_matrix_gain_spread_db": 0.0
+  },
+  "rms": {
+    "score_total": -2583.6092575202247,
+    "score_plausibility": -2583.6092575202247,
+    "score_reference": 0.0,
+    "reference_case_count": 0,
+    "cassette_primary_case_count": 0,
+    "tone_matrix_coverage": 0.0,
+    "tone_matrix_gain_spread_db": 0.0
+  },
+  "cpu_note": "rms mode adds one extra detector IIR state/update per sample and channel in simulator.",
+  "realtime_note": "Expected to be practical on Teensy 4.1, but firmware-side CPU headroom must still be validated on hardware telemetry."
+}

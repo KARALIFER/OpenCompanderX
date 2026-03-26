@@ -210,6 +210,8 @@ python ocx_type2_harness.py --tune --tune-fs 4000 --tune-final-fs 44100 --tune-t
 python ocx_type2_harness.py --detector-study --out-dir artifacts/harness_detector
 ```
 
+Note: `--mode` is honored for tuning and detector-study invocations as well (for example `--mode roundtrip` runs roundtrip evaluation inside those studies).
+
 ## Hardware telemetry and evaluation
 
 ### Firmware commands
@@ -542,3 +544,13 @@ This project may also be relevant if you are searching for:
 - SGTL5000 tape decoder
 
 OpenCompanderX is an independent open-source compatibility project for decoding Type II companded cassette material on Teensy 4.1 hardware.
+
+
+## 2026 codec-mode update
+
+- Firmware/simulator architecture now supports **decode** and **encode** modes, with mode-select persistence across reboot via EEPROM-backed settings.
+- Default project sample-rate remains **44.1 kHz** (primary target).
+- Encoder feasibility is based on offline Python encode/roundtrip validation artifacts in `artifacts/`.
+- Broadband and mixed-material behavior remains the main caution area.
+- No claim is made of historical dbx Type-II exact equivalence.
+- Firmware validity still depends on green Python gates and successful `pio run -e teensy41`.

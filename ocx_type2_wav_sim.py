@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline WAV simulator for the OCX Type 2 Teensy decoder firmware."""
+"""Offline WAV simulator for the OCX Type 2 Teensy codec architecture."""
 
 from __future__ import annotations
 
@@ -69,18 +69,11 @@ def summarize_signal(name: str, audio: np.ndarray) -> dict[str, float | str]:
     rms = float(np.sqrt(np.mean(np.square(st))))
     crest = float(peak / max(rms, 1.0e-12))
     ch_delta = float(np.max(np.abs(st[:, 0] - st[:, 1])))
-    return {
-        "name": name,
-        "samples": int(st.shape[0]),
-        "peak": peak,
-        "rms": rms,
-        "crest": crest,
-        "channel_delta_max": ch_delta,
-    }
+    return {"name": name, "samples": int(st.shape[0]), "peak": peak, "rms": rms, "crest": crest, "channel_delta_max": ch_delta}
 
 
 @dataclass(frozen=True)
-class Params:
+class DecoderParams:
     input_trim_db: float
     output_trim_db: float
     strength: float
@@ -102,11 +95,48 @@ class Params:
     bypass: bool = False
 
     @classmethod
-    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "Params":
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "DecoderParams":
         profile = json.loads(profile_path.read_text())
-        decoder = profile["decoder"].copy()
-        decoder.update(overrides)
-        return cls(**decoder)
+        section = profile["decoder"].copy()
+        section.update(overrides)
+        return cls(**section)
+
+
+@dataclass(frozen=True)
+class EncoderParams:
+    input_trim_db: float
+    output_trim_db: float
+    strength: float
+    reference_db: float
+    max_boost_db: float
+    max_cut_db: float
+    attack_ms: float
+    release_ms: float
+    sidechain_hp_hz: float
+    sidechain_shelf_hz: float
+    sidechain_shelf_db: float
+    tilt_hz: float
+    tilt_db: float
+    soft_clip_drive: float
+    dc_block_hz: float
+    headroom_db: float
+    detector_mode: str = "energy"
+    detector_rms_ms: float = 6.0
+    bypass: bool = False
+
+    @classmethod
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "EncoderParams":
+        profile = json.loads(profile_path.read_text())
+        section = profile["encoder"].copy()
+        section.update(overrides)
+        return cls(**section)
+
+
+class Params(DecoderParams):
+    @classmethod
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "Params":
+        base = DecoderParams.from_profile(profile_path, **overrides)
+        return cls(**base.__dict__)
 
 
 class Biquad:
@@ -161,14 +191,12 @@ def design_highpass(fs: float, hz: float, q: float = 0.7071) -> Biquad:
     cosw0 = math.cos(w0)
     sinw0 = math.sin(w0)
     alpha = sinw0 / (2.0 * q)
-
     b0 = (1.0 + cosw0) * 0.5
     b1 = -(1.0 + cosw0)
     b2 = (1.0 + cosw0) * 0.5
     a0 = 1.0 + alpha
     a1 = -2.0 * cosw0
     a2 = 1.0 - alpha
-
     f.b0 = b0 / a0
     f.b1 = b1 / a0
     f.b2 = b2 / a0
@@ -186,14 +214,12 @@ def design_high_shelf(fs: float, hz: float, gain_db: float, slope: float = 0.8) 
     sinw0 = math.sin(w0)
     alpha = sinw0 / 2.0 * math.sqrt((A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0)
     beta = 2.0 * math.sqrt(A) * alpha
-
     b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + beta)
     b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0)
     b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - beta)
     a0 = (A + 1.0) - (A - 1.0) * cosw0 + beta
     a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosw0)
     a2 = (A + 1.0) - (A - 1.0) * cosw0 - beta
-
     f.b0 = b0 / a0
     f.b1 = b1 / a0
     f.b2 = b2 / a0
@@ -202,10 +228,11 @@ def design_high_shelf(fs: float, hz: float, gain_db: float, slope: float = 0.8) 
     return f
 
 
-class Decoder:
-    def __init__(self, fs: int, params: Params):
+class _CompanderCore:
+    def __init__(self, fs: int, params: Any, mode: str):
         self.fs = int(fs)
         self.p = params
+        self.mode = mode
         self.input_gain = db_to_lin(params.input_trim_db)
         self.output_gain = db_to_lin(params.output_trim_db)
         self.headroom_gain = db_to_lin(-abs(params.headroom_db))
@@ -213,7 +240,9 @@ class Decoder:
         self.release_coeff = math.exp(-1.0 / max(self.fs * params.release_ms * 0.001, 1.0))
         self.sc_hp = [design_highpass(self.fs, params.sidechain_hp_hz) for _ in range(2)]
         self.sc_shelf = [design_high_shelf(self.fs, params.sidechain_shelf_hz, params.sidechain_shelf_db) for _ in range(2)]
-        self.deemph = [design_high_shelf(self.fs, params.deemph_hz, params.deemph_db) for _ in range(2)]
+        tilt_db = float(getattr(params, "deemph_db", getattr(params, "tilt_db", 0.0)))
+        tilt_hz = float(getattr(params, "deemph_hz", getattr(params, "tilt_hz", 1850.0)))
+        self.tilt = [design_high_shelf(self.fs, tilt_hz, tilt_db) for _ in range(2)]
         self.dc_block = [OnePoleHP(self.fs, params.dc_block_hz) for _ in range(2)]
         self.env2 = np.full(2, 1.0e-9, dtype=np.float64)
         self.detector_env2 = np.full(2, 1.0e-9, dtype=np.float64)
@@ -221,74 +250,110 @@ class Decoder:
         self.rms_coeff = math.exp(-1.0 / max(self.fs * params.detector_rms_ms * 0.001, 1.0))
         self.input_clip = np.zeros(2, dtype=np.bool_)
         self.output_clip = np.zeros(2, dtype=np.bool_)
+        self.gain_db_log: list[float] = []
 
     def reset(self) -> None:
-        for bank in (self.sc_hp, self.sc_shelf, self.deemph, self.dc_block):
+        for bank in (self.sc_hp, self.sc_shelf, self.tilt, self.dc_block):
             for f in bank:
                 f.reset()
         self.env2[:] = 1.0e-9
         self.detector_env2[:] = 1.0e-9
         self.input_clip[:] = False
         self.output_clip[:] = False
+        self.gain_db_log.clear()
 
-    def process_channel(self, x: np.ndarray, ch: int) -> np.ndarray:
-        x = np.asarray(x, dtype=np.float64)
-        out = np.zeros_like(x)
-        for i, sample in enumerate(x):
-            x0 = sanitize_scalar(float(sample), -2.0, 2.0)
-            x0 = self.dc_block[ch].process(x0 * self.input_gain)
-            if abs(x0) > 0.98:
-                self.input_clip[ch] = True
+    def _detector_power(self, x0: float, ch: int) -> float:
+        sc = self.sc_hp[ch].process(x0)
+        sc = self.sc_shelf[ch].process(sc)
+        p = sanitize_scalar(sc * sc, 0.0, 1.0e12)
+        if self.detector_mode == "rms":
+            self.detector_env2[ch] = sanitize_scalar(self.rms_coeff * self.detector_env2[ch] + (1.0 - self.rms_coeff) * p, 0.0, 1.0e12)
+            p = self.detector_env2[ch]
+        coeff = self.attack_coeff if p > self.env2[ch] else self.release_coeff
+        self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * p, 0.0, 1.0e12)
+        return math.sqrt(self.env2[ch] + 1.0e-12)
 
-            if self.p.bypass:
-                y = soft_clip(x0 * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
-                y = sanitize_scalar(y, -1.0, 1.0)
-                if abs(y) > 0.98:
-                    self.output_clip[ch] = True
-                out[i] = y
-                continue
-
-            sc = self.sc_hp[ch].process(x0)
-            sc = self.sc_shelf[ch].process(sc)
-            p = sanitize_scalar(sc * sc, 0.0, 1.0e12)
-            if self.detector_mode == "rms":
-                self.detector_env2[ch] = sanitize_scalar(
-                    self.rms_coeff * self.detector_env2[ch] + (1.0 - self.rms_coeff) * p, 0.0, 1.0e12
-                )
-                p = self.detector_env2[ch]
-            coeff = self.attack_coeff if p > self.env2[ch] else self.release_coeff
-            self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * p, 0.0, 1.0e12)
-            env = math.sqrt(self.env2[ch] + 1.0e-12)
-
-            gain_db = (20.0 * math.log10(max(env, 1.0e-12)) - self.p.reference_db) * self.p.strength
-            gain_db = clamp(gain_db, -self.p.max_cut_db, self.p.max_boost_db)
-
-            y = x0 * db_to_lin(gain_db)
-            y = self.deemph[ch].process(y)
-            y *= self.output_gain * self.headroom_gain
-            y = soft_clip(y, self.p.soft_clip_drive)
-            y = sanitize_scalar(y, -1.0, 1.0)
-            if abs(y) > 0.98:
-                self.output_clip[ch] = True
-            out[i] = y
-
-        return sanitize_array(out, -1.0, 1.0)
+    def _gain_db(self, env: float) -> float:
+        raw = (20.0 * math.log10(max(env, 1.0e-12)) - self.p.reference_db) * self.p.strength
+        if self.mode == "decode":
+            gain_db = clamp(raw, -self.p.max_cut_db, self.p.max_boost_db)
+        else:
+            gain_db = clamp(-raw, -self.p.max_cut_db, self.p.max_boost_db)
+        self.gain_db_log.append(float(gain_db))
+        return gain_db
 
     def process(self, audio: np.ndarray) -> np.ndarray:
         st = ensure_stereo(audio)
-        out_l = self.process_channel(st[:, 0], 0)
-        out_r = self.process_channel(st[:, 1], 1)
-        return sanitize_array(np.column_stack([out_l, out_r]), -1.0, 1.0)
+        out = np.zeros_like(st)
+        for i in range(len(st)):
+            for ch in (0, 1):
+                x0 = self.dc_block[ch].process(sanitize_scalar(float(st[i, ch]), -2.0, 2.0) * self.input_gain)
+                if abs(x0) > 0.98:
+                    self.input_clip[ch] = True
+                if self.p.bypass:
+                    y = soft_clip(x0 * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
+                else:
+                    env = self._detector_power(x0, ch)
+                    gain_db = self._gain_db(env)
+                    y = x0 * db_to_lin(gain_db)
+                    y = self.tilt[ch].process(y)
+                    y = soft_clip(y * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
+                y = sanitize_scalar(y, -1.0, 1.0)
+                if abs(y) > 0.98:
+                    self.output_clip[ch] = True
+                out[i, ch] = y
+        return sanitize_array(out, -1.0, 1.0)
+
+
+class Decoder(_CompanderCore):
+    def __init__(self, fs: int, params: DecoderParams):
+        super().__init__(fs, params, mode="decode")
+
+
+class Encoder(_CompanderCore):
+    def __init__(self, fs: int, params: EncoderParams):
+        super().__init__(fs, params, mode="encode")
+
+
+def run_mode(audio: np.ndarray, fs: int, mode: str, profile: Path, overrides: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
+    mode = mode.lower().strip()
+    if mode == "decode":
+        proc = Decoder(fs, DecoderParams.from_profile(profile, **overrides))
+        out = proc.process(audio)
+        return out, {"mode": mode, "input_clip": proc.input_clip.tolist(), "output_clip": proc.output_clip.tolist()}
+    if mode == "encode":
+        proc = Encoder(fs, EncoderParams.from_profile(profile, **overrides))
+        out = proc.process(audio)
+        gains = np.asarray(proc.gain_db_log) if proc.gain_db_log else np.zeros(1)
+        return out, {
+            "mode": mode,
+            "input_clip": proc.input_clip.tolist(),
+            "output_clip": proc.output_clip.tolist(),
+            "gain_mean_db": float(np.mean(gains)),
+            "gain_std_db": float(np.std(gains)),
+        }
+    if mode == "roundtrip":
+        enc = Encoder(fs, EncoderParams.from_profile(profile, **overrides))
+        dec = Decoder(fs, DecoderParams.from_profile(profile))
+        encoded = enc.process(audio)
+        out = dec.process(encoded)
+        return out, {
+            "mode": mode,
+            "encode": {"input_clip": enc.input_clip.tolist(), "output_clip": enc.output_clip.tolist()},
+            "decode": {"input_clip": dec.input_clip.tolist(), "output_clip": dec.output_clip.tolist()},
+        }
+    raise ValueError(f"Unsupported mode: {mode}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="Offline OCX Type 2 WAV decoder simulator")
+    ap = argparse.ArgumentParser(description="Offline OCX Type 2 WAV simulator")
     ap.add_argument("input_wav", type=Path)
     ap.add_argument("output_wav", type=Path)
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
+    ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--bypass", action="store_true")
-    ap.add_argument("--override", action="append", default=[], help="Decoder override as key=value (repeatable)")
+    ap.add_argument("--override", action="append", default=[], help="Override as key=value (repeatable)")
     return ap
 
 
@@ -298,19 +363,11 @@ def parse_overrides(pairs: list[str]) -> dict[str, Any]:
         if "=" not in item:
             raise ValueError(f"Override must use key=value, got '{item}'")
         key, value = item.split("=", 1)
-        key = key.strip()
         raw = value.strip()
-        if not key:
-            raise ValueError(f"Override key missing in '{item}'")
         try:
-            parsed: Any = float(raw)
+            overrides[key.strip()] = float(raw)
         except ValueError:
-            lowered = raw.lower()
-            if lowered in {"true", "false"}:
-                parsed = lowered == "true"
-            else:
-                parsed = raw
-        overrides[key] = parsed
+            overrides[key.strip()] = raw.lower() == "true" if raw.lower() in {"true", "false"} else raw
     return overrides
 
 
@@ -321,41 +378,12 @@ def main() -> None:
     expected_fs = int(profile["sample_rate_hz"])
     if fs != expected_fs:
         raise ValueError(f"Expected {expected_fs} Hz WAV for direct Teensy comparability, got {fs} Hz")
-
     overrides = parse_overrides(args.override)
-    params = Params.from_profile(args.profile, bypass=args.bypass, **overrides)
-    decoder = Decoder(fs, params)
-    out = decoder.process(audio)
+    if args.bypass:
+        overrides["bypass"] = True
+    out, meta = run_mode(audio, fs, args.mode, args.profile, overrides)
     write_audio(args.output_wav, fs, out)
-
-    print(
-        json.dumps(
-            {
-                "input": summarize_signal("input", audio),
-                "output": summarize_signal("output", out),
-                "input_clip": decoder.input_clip.tolist(),
-                "output_clip": decoder.output_clip.tolist(),
-            },
-            indent=2,
-        )
-    )
-
-    if args.plot:
-        import matplotlib.pyplot as plt
-
-        n = min(len(audio), fs * 2)
-        t = np.arange(n) / fs
-        fig, ax = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
-        ax[0].plot(t, audio[:n, 0], label="input L")
-        ax[0].plot(t, out[:n, 0], label="output L", alpha=0.8)
-        ax[0].legend()
-        ax[0].set_title("OCX Type 2 decoder simulation")
-        ax[1].plot(t, audio[:n, 1], label="input R")
-        ax[1].plot(t, out[:n, 1], label="output R", alpha=0.8)
-        ax[1].legend()
-        ax[1].set_xlabel("seconds")
-        plt.tight_layout()
-        plt.show()
+    print(json.dumps({"input": summarize_signal("input", audio), "output": summarize_signal("output", out), **meta}, indent=2))
 
 
 if __name__ == "__main__":
