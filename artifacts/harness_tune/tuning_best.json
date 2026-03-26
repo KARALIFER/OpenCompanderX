@@ -1,0 +1,102 @@
+{
+  "method": "two_stage_tuning",
+  "selection_basis": "final_stage_only",
+  "coarse_stage_role": "prescan_only_not_final_decision",
+  "coarse_fs": 4000,
+  "final_fs": 44100,
+  "candidate_limit": 2,
+  "candidate_count": 2,
+  "top_k_finalists": 2,
+  "coarse_ranking": [
+    {
+      "params": {
+        "strength": 0.76,
+        "attack_ms": 3.5,
+        "release_ms": 140.0,
+        "deemph_db": -6.0,
+        "sidechain_shelf_db": 16.0,
+        "headroom_db": 1.0
+      },
+      "score_total": -86.44569212881309,
+      "score_plausibility": -86.44569212881309,
+      "score_reference": 0.0,
+      "reference_case_count": 0,
+      "cassette_primary_case_count": 0,
+      "tone_matrix_coverage": 0.0,
+      "tone_matrix_gain_spread_db": 0.0
+    },
+    {
+      "params": {
+        "strength": 0.76,
+        "attack_ms": 3.5,
+        "release_ms": 140.0,
+        "deemph_db": -6.0,
+        "sidechain_shelf_db": 16.0,
+        "headroom_db": 1.5
+      },
+      "score_total": -94.79810535601268,
+      "score_plausibility": -94.79810535601268,
+      "score_reference": 0.0,
+      "reference_case_count": 0,
+      "cassette_primary_case_count": 0,
+      "tone_matrix_coverage": 0.0,
+      "tone_matrix_gain_spread_db": 0.0
+    }
+  ],
+  "final_ranking": [
+    {
+      "params": {
+        "strength": 0.76,
+        "attack_ms": 3.5,
+        "release_ms": 140.0,
+        "deemph_db": -6.0,
+        "sidechain_shelf_db": 16.0,
+        "headroom_db": 1.5
+      },
+      "score_total": -4854.872420438937,
+      "score_plausibility": -4854.872420438937,
+      "score_reference": 0.0,
+      "reference_case_count": 0,
+      "cassette_primary_case_count": 0,
+      "tone_matrix_coverage": 0.0,
+      "tone_matrix_gain_spread_db": 0.0,
+      "coarse_score_total": -94.79810535601268
+    },
+    {
+      "params": {
+        "strength": 0.76,
+        "attack_ms": 3.5,
+        "release_ms": 140.0,
+        "deemph_db": -6.0,
+        "sidechain_shelf_db": 16.0,
+        "headroom_db": 1.0
+      },
+      "score_total": -4864.559626951815,
+      "score_plausibility": -4864.559626951815,
+      "score_reference": 0.0,
+      "reference_case_count": 0,
+      "cassette_primary_case_count": 0,
+      "tone_matrix_coverage": 0.0,
+      "tone_matrix_gain_spread_db": 0.0,
+      "coarse_score_total": -86.44569212881309
+    }
+  ],
+  "best": {
+    "params": {
+      "strength": 0.76,
+      "attack_ms": 3.5,
+      "release_ms": 140.0,
+      "deemph_db": -6.0,
+      "sidechain_shelf_db": 16.0,
+      "headroom_db": 1.5
+    },
+    "score_total": -4854.872420438937,
+    "score_plausibility": -4854.872420438937,
+    "score_reference": 0.0,
+    "reference_case_count": 0,
+    "cassette_primary_case_count": 0,
+    "tone_matrix_coverage": 0.0,
+    "tone_matrix_gain_spread_db": 0.0,
+    "coarse_score_total": -94.79810535601268
+  }
+}

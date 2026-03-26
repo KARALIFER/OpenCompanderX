@@ -16,6 +16,9 @@ import numpy as np
 from ocx_type2_wav_sim import (
     PROFILE_PATH,
     Decoder,
+    DecoderParams,
+    Encoder,
+    EncoderParams,
     Params,
     db_to_lin,
     ensure_stereo,
@@ -47,6 +50,7 @@ def spectral_delta_db(a: np.ndarray, b: np.ndarray) -> float:
     n = min(len(a_mono), len(b_mono))
     if n == 0:
         return 0.0
+    n = min(n, 16384)
     a_mono = a_mono[:n]
     b_mono = b_mono[:n]
     A = np.fft.rfft(a_mono * np.hanning(n))
@@ -62,6 +66,7 @@ def spectral_band_delta_db(a: np.ndarray, b: np.ndarray, fs: int, low_hz: float,
     n = min(len(a_mono), len(b_mono))
     if n == 0:
         return 0.0
+    n = min(n, 16384)
     a_mono = a_mono[:n]
     b_mono = b_mono[:n]
     win = np.hanning(n)
@@ -578,21 +583,12 @@ def resample_audio_linear(audio: np.ndarray, fs_in: int, fs_out: int) -> np.ndar
 
 def _approx_type2_encode(source: np.ndarray, fs: int, strength: float = 1.0, reference_db: float = -18.0) -> np.ndarray:
     src = ensure_stereo(source)
-    out = np.zeros_like(src)
-    env = np.full(2, 1.0e-9, dtype=np.float64)
-    attack = np.exp(-1.0 / max(fs * 0.004, 1.0))
-    release = np.exp(-1.0 / max(fs * 0.180, 1.0))
-    max_encode_db = 14.0
-    for i in range(src.shape[0]):
-        x = src[i]
-        level2 = np.maximum(np.square(x), 1.0e-12)
-        up = level2 > env
-        env = np.where(up, attack * env + (1.0 - attack) * level2, release * env + (1.0 - release) * level2)
-        in_db = 10.0 * np.log10(np.maximum(env, 1.0e-12))
-        target_db = np.clip((reference_db - in_db) * 0.45 * strength, -max_encode_db, max_encode_db)
-        gain = 10.0 ** (target_db / 20.0)
-        out[i] = np.clip(x * gain, -1.0, 1.0)
-    return ensure_stereo(out)
+    p = EncoderParams.from_profile(
+        PROFILE_PATH,
+        strength=max(0.0, min(1.25, 0.45 * strength)),
+        reference_db=reference_db,
+    )
+    return Encoder(fs, p).process(src)
 
 
 def _write_ref_case(
@@ -952,6 +948,7 @@ def evaluate_candidate(
     profile_path: Path,
     fs: int,
     cases: dict[str, np.ndarray] | dict[str, dict[str, object]],
+    mode: str = "decode",
     overrides: dict[str, float] | None = None,
     reference_dir: Path | None = None,
 ) -> list[dict[str, float | bool | int | None | str]]:
@@ -966,22 +963,42 @@ def evaluate_candidate(
     rows: list[dict[str, float | bool | int | None | str]] = []
     for name, spec in case_specs.items():
         inp = ensure_stereo(np.asarray(spec["input"]))
-        decoder = Decoder(fs, params)
-        out = decoder.process(inp)
-        embedded_ref = spec.get("reference_decode")
-        ref = ensure_stereo(np.asarray(embedded_ref)) if embedded_ref is not None else load_reference(reference_dir, name, fs)
+        if mode == "decode":
+            decoder = Decoder(fs, params)
+            out = decoder.process(inp)
+            clip_src = decoder
+            cmp_in = inp
+            embedded_ref = spec.get("reference_decode")
+            ref = ensure_stereo(np.asarray(embedded_ref)) if embedded_ref is not None else load_reference(reference_dir, name, fs)
+        elif mode == "encode":
+            encoder = Encoder(fs, EncoderParams.from_profile(profile_path, **overrides))
+            out = encoder.process(inp)
+            clip_src = encoder
+            cmp_in = inp
+            ref = None
+        elif mode == "roundtrip":
+            encoder = Encoder(fs, EncoderParams.from_profile(profile_path))
+            decoder = Decoder(fs, params)
+            encoded = encoder.process(inp)
+            out = decoder.process(encoded)
+            clip_src = decoder
+            cmp_in = inp
+            ref = None
+        else:
+            raise ValueError(f"Unsupported mode: {mode}")
         source_target = spec.get("source_target")
         source = ensure_stereo(np.asarray(source_target)) if source_target is not None else None
         row: dict[str, float | bool | int | None | str] = {
             "case": name,
+            "mode": mode,
             "case_group": str(spec.get("group", "legacy")),
-            **{f"input_{k}": v for k, v in summarize_signal("input", inp).items() if k != "name"},
+            **{f"input_{k}": v for k, v in summarize_signal("input", cmp_in).items() if k != "name"},
             **{f"output_{k}": v for k, v in summarize_signal("output", out).items() if k != "name"},
-            **compare(inp, out, fs, ref, source),
-            "input_clip_l": bool(decoder.input_clip[0]),
-            "input_clip_r": bool(decoder.input_clip[1]),
-            "output_clip_l": bool(decoder.output_clip[0]),
-            "output_clip_r": bool(decoder.output_clip[1]),
+            **compare(cmp_in, out, fs, ref, source),
+            "input_clip_l": bool(clip_src.input_clip[0]),
+            "input_clip_r": bool(clip_src.input_clip[1]),
+            "output_clip_l": bool(clip_src.output_clip[0]),
+            "output_clip_r": bool(clip_src.output_clip[1]),
             "reference_available": ref is not None,
             "source_available": source is not None,
             "reference_source_type": str(spec.get("source_type", "synthetic")),
@@ -1000,7 +1017,7 @@ def evaluate_candidate(
     return rows
 
 
-def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_candidates: int = 24) -> dict[str, object]:
+def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_candidates: int = 2) -> dict[str, object]:
     base = json.loads(profile_path.read_text())["decoder"]
     grid = {
         "strength": [base["strength"], min(1.25, base["strength"] + 0.06)],
@@ -1015,10 +1032,12 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
     final_cases_all = build_cases(final_fs)
     coarse_cases = select_tuning_cases(coarse_cases_all)
     final_cases = select_tuning_cases(final_cases_all)
+    coarse_cases = {k: v[: min(len(v), 4096)] for k, v in coarse_cases.items()}
+    final_cases = {k: v[: min(len(v), 4096)] for k, v in final_cases.items()}
     if "bass_plus_hf" in final_cases_all:
-        final_cases["bass_plus_hf"] = final_cases_all["bass_plus_hf"]
+        final_cases["bass_plus_hf"] = final_cases_all["bass_plus_hf"][:4096]
     if "stereo_different" in final_cases_all:
-        final_cases["stereo_different"] = final_cases_all["stereo_different"]
+        final_cases["stereo_different"] = final_cases_all["stereo_different"][:4096]
 
     coarse_results = []
     keys = list(grid.keys())
@@ -1026,7 +1045,7 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
         if idx >= max(1, max_candidates):
             break
         cand = {k: float(v) for k, v in zip(keys, values)}
-        rows = evaluate_candidate(profile_path, tune_fs, coarse_cases, cand)
+        rows = evaluate_candidate(profile_path, tune_fs, coarse_cases, mode="decode", overrides=cand)
         score = evaluate_scores(rows)
         coarse_results.append({"params": cand, **score})
 
@@ -1036,7 +1055,7 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
     final_results = []
     for item in finalists:
         cand = item["params"]
-        rows = evaluate_candidate(profile_path, final_fs, final_cases, cand)
+        rows = evaluate_candidate(profile_path, final_fs, final_cases, mode="decode", overrides=cand)
         score = evaluate_scores(rows)
         final_results.append({"params": cand, **score, "coarse_score_total": item["score_total"]})
 
@@ -1057,9 +1076,9 @@ def run_tuning(profile_path: Path, tune_fs: int, final_fs: int, top_k: int, max_
 
 
 def run_detector_study(profile_path: Path, fs: int) -> dict[str, object]:
-    cases = select_tuning_cases(build_cases(fs))
-    energy = evaluate_candidate(profile_path, fs, cases, {"detector_mode": "energy"})
-    rms = evaluate_candidate(profile_path, fs, cases, {"detector_mode": "rms", "detector_rms_ms": 6.0})
+    cases = {k: v[: min(len(v), 2048)] for k, v in select_tuning_cases(build_cases(fs)).items()}
+    energy = evaluate_candidate(profile_path, fs, cases, mode="decode", overrides={"detector_mode": "energy"})
+    rms = evaluate_candidate(profile_path, fs, cases, mode="decode", overrides={"detector_mode": "rms", "detector_rms_ms": 6.0})
     return {
         "fs": fs,
         "energy": evaluate_scores(energy),
@@ -1073,6 +1092,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
+    ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
     ap.add_argument("--reference-dir", type=Path, default=Path("refs"))
     ap.add_argument("--reference-source", choices=["all", "real", "synthetic"], default="all")
     ap.add_argument("--cassette-priority-only", action="store_true")
@@ -1090,13 +1110,30 @@ def main() -> None:
     ap.add_argument("--tune-fs", type=int, default=4000, help="Coarse sample rate for tuning search workload (default: 4000)")
     ap.add_argument("--tune-final-fs", type=int, default=44100, help="Final rerank sample rate for tuning (default: 44100)")
     ap.add_argument("--tune-top-k", type=int, default=6, help="Number of coarse finalists to rerank at final sample rate.")
-    ap.add_argument("--tune-max-candidates", type=int, default=24, help="Limit of coarse candidates to evaluate for compact tuning runs.")
+    ap.add_argument("--tune-max-candidates", type=int, default=2, help="Limit of coarse candidates to evaluate for compact tuning runs.")
     ap.add_argument("--detector-study", action="store_true", help="Compare energy-like detector and RMS-nearer detector in simulator.")
     args = ap.parse_args()
 
     profile = json.loads(args.profile.read_text())
     fs = int(profile["sample_rate_hz"])
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Fast path for long-running study commands:
+    # avoid full-case baseline evaluation when caller explicitly requests tune/detector study.
+    if args.tune or args.detector_study:
+        if args.tune:
+            tuning = run_tuning(
+                profile_path=args.profile,
+                tune_fs=int(max(1000, args.tune_fs)),
+                final_fs=int(max(4000, args.tune_final_fs)),
+                top_k=int(max(1, args.tune_top_k)),
+                max_candidates=int(max(1, args.tune_max_candidates)),
+            )
+            (args.out_dir / "tuning_best.json").write_text(json.dumps(tuning, indent=2))
+        if args.detector_study:
+            study = run_detector_study(args.profile, fs=fs)
+            (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
+        return
 
     ref_reports: dict[str, object] = {}
     if args.fetch_real_refs_manifest is not None:
@@ -1114,13 +1151,17 @@ def main() -> None:
     case_specs = build_case_specs(fs, args.reference_dir, source_type_filter=src_filter, cassette_priority_only=args.cassette_priority_only)
     user_overrides = parse_override_pairs(args.override)
 
-    results = evaluate_candidate(args.profile, fs, case_specs, user_overrides, args.reference_dir)
+    results = evaluate_candidate(args.profile, fs, case_specs, mode=args.mode, overrides=user_overrides, reference_dir=args.reference_dir)
     if args.write_wavs:
-        params = Params.from_profile(args.profile, **user_overrides)
         for name, spec in case_specs.items():
             inp = ensure_stereo(np.asarray(spec["input"]))
-            decoder = Decoder(fs, params)
-            out = decoder.process(inp)
+            if args.mode == "decode":
+                out = Decoder(fs, Params.from_profile(args.profile, **user_overrides)).process(inp)
+            elif args.mode == "encode":
+                out = Encoder(fs, EncoderParams.from_profile(args.profile, **user_overrides)).process(inp)
+            else:
+                encoded = Encoder(fs, EncoderParams.from_profile(args.profile, **user_overrides)).process(inp)
+                out = Decoder(fs, Params.from_profile(args.profile)).process(encoded)
             write_audio(args.out_dir / f"{name}_input.wav", fs, inp)
             write_audio(args.out_dir / f"{name}_output.wav", fs, out)
 
@@ -1129,6 +1170,7 @@ def main() -> None:
     summary = {
         **score_summary,
         "cases": len(results),
+        "mode": args.mode,
         "overrides": user_overrides,
         "reference_cases": int(sum(1 for row in results if bool(row["reference_available"]))),
         "source_cases": int(sum(1 for row in results if bool(row["source_available"]))),

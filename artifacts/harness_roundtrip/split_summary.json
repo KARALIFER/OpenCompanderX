@@ -1,0 +1,21 @@
+{
+  "all": {
+    "score_total": -11250.051754419952,
+    "score_plausibility": -11250.051754419952,
+    "score_reference": 0.0,
+    "reference_case_count": 0,
+    "cassette_primary_case_count": 20,
+    "tone_matrix_coverage": 1.0,
+    "tone_matrix_gain_spread_db": 2.075519390140469
+  },
+  "synthetic": {
+    "score_total": -11250.051754419952,
+    "score_plausibility": -11250.051754419952,
+    "score_reference": 0.0,
+    "reference_case_count": 0,
+    "cassette_primary_case_count": 20,
+    "tone_matrix_coverage": 1.0,
+    "tone_matrix_gain_spread_db": 2.075519390140469
+  },
+  "real": null
+}
