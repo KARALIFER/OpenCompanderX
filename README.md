@@ -177,6 +177,7 @@ python -m py_compile ocx_type2_harness.py
 python -m py_compile tests/test_ocx_type2.py
 pytest -q
 pio run -e teensy41
+arduino-cli compile --fqbn teensy:avr:teensy41 ocx_type2_teensy41_decoder.ino
 ```
 
 ## Harness and tuning examples

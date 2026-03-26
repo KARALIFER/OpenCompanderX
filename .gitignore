@@ -6,3 +6,6 @@ artifacts/harness/*.json
 artifacts/harness/*.csv
 artifacts/harness/*.png
 artifacts/harness/*.md
+artifacts/generated_audio/*.wav
+artifacts/manual_audio_checks/outputs/*.wav
+artifacts/manual_audio_checks/sim_outputs/*.wav

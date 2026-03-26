@@ -1,0 +1,29 @@
+{
+  "input": {
+    "name": "input",
+    "samples": 132300,
+    "peak": 0.39849853515625,
+    "rms": 0.14229390155156108,
+    "crest": 2.8005313707126906,
+    "channel_delta_max": 0.0
+  },
+  "output": {
+    "name": "output",
+    "samples": 132300,
+    "peak": 0.36679379833520953,
+    "rms": 0.10115276347371689,
+    "crest": 3.626137198224107,
+    "channel_delta_max": 0.0
+  },
+  "mode": "encode",
+  "input_clip": [
+    false,
+    false
+  ],
+  "output_clip": [
+    false,
+    false
+  ],
+  "gain_mean_db": -3.052819545184202,
+  "gain_std_db": 1.1719657563937471
+}

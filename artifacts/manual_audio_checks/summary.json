@@ -1,0 +1,23 @@
+{
+  "total_cases": 23,
+  "modes": [
+    "decode",
+    "encode",
+    "roundtrip"
+  ],
+  "any_clipping": {
+    "decode": true,
+    "encode": false,
+    "roundtrip": false
+  },
+  "any_nan_inf": {
+    "decode": false,
+    "encode": false,
+    "roundtrip": false
+  },
+  "avg_residual_rms": {
+    "decode": 0.07984430381746004,
+    "encode": 0.07726051343505577,
+    "roundtrip": 0.062280100014211644
+  }
+}

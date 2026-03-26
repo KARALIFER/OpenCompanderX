@@ -1,0 +1,27 @@
+{
+  "input": {
+    "name": "input",
+    "samples": 132300,
+    "peak": 0.39849853515625,
+    "rms": 0.14229390155156108,
+    "crest": 2.8005313707126906,
+    "channel_delta_max": 0.0
+  },
+  "output": {
+    "name": "output",
+    "samples": 132300,
+    "peak": 0.5403393650572876,
+    "rms": 0.17049173193755143,
+    "crest": 3.1692995250655667,
+    "channel_delta_max": 0.0
+  },
+  "mode": "decode",
+  "input_clip": [
+    false,
+    false
+  ],
+  "output_clip": [
+    false,
+    false
+  ]
+}

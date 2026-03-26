@@ -1,0 +1,2279 @@
+[
+  {
+    "file": "10khz_-12db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.2689495072390892,
+      "rms": 0.1906063821136332,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.020341156015696745,
+      "spectral_delta": {
+        "low_db": 33.980995763951476,
+        "mid_db": 30.408155736514665,
+        "high_db": 0.6130173958406757
+      },
+      "transient_delta": 0.025661656541367817,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.5191900163992391,
+      "rms": 0.12260560611765532,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.056129333897594835,
+      "spectral_delta": {
+        "low_db": 33.35870461368792,
+        "mid_db": 35.21495093828179,
+        "high_db": -3.219545978377665
+      },
+      "transient_delta": -0.10118005837276073,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -8.664427739815453,
+        "gain_std_db": 0.17174312146991597
+      }
+    },
+    "roundtrip": {
+      "peak": 0.2901195919388045,
+      "rms": 0.13235245404895943,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.04537683852206715,
+      "spectral_delta": {
+        "low_db": 34.164853086597596,
+        "mid_db": 23.203718929282758,
+        "high_db": -2.55508939767494
+      },
+      "transient_delta": -0.0826545482504912,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "10khz_-24db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.04175236310180887,
+      "rms": 0.029490624256305508,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.015450738330218683,
+      "spectral_delta": {
+        "low_db": 31.16795979828528,
+        "mid_db": 16.23192168198771,
+        "high_db": -3.596117623315026
+      },
+      "transient_delta": -0.027777454882572133,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.2540931970225611,
+      "rms": 0.05755312806145644,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.013493337871103222,
+      "spectral_delta": {
+        "low_db": 40.11040045665338,
+        "mid_db": 30.050253817790118,
+        "high_db": 2.2115581054314526
+      },
+      "transient_delta": 0.02379133861692767,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -3.2645090304886146,
+        "gain_std_db": 0.16447088470989346
+      }
+    },
+    "roundtrip": {
+      "peak": 0.07990158045854406,
+      "rms": 0.046141886152672236,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.0017080125046038564,
+      "spectral_delta": {
+        "low_db": 37.600003847420325,
+        "mid_db": 13.047991619727854,
+        "high_db": 0.2921130776261808
+      },
+      "transient_delta": 0.0028055555962496065,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "10khz_-6db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.5138106438582855,
+      "rms": 0.3679367306092716,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.0338772813764079,
+      "spectral_delta": {
+        "low_db": 30.40285266879951,
+        "mid_db": 35.20135138296196,
+        "high_db": 0.3257772037241227
+      },
+      "transient_delta": 0.03743701546058831,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.7140356038875508,
+      "rms": 0.23249821394119458,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.12368119814438236,
+      "spectral_delta": {
+        "low_db": 24.62258125789919,
+        "mid_db": 37.4495358869202,
+        "high_db": -3.6612999462220426
+      },
+      "transient_delta": -0.22173521745721492,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -8.998370285640148,
+        "gain_std_db": 0.1134733217354392
+      }
+    },
+    "roundtrip": {
+      "peak": 0.5002004997492038,
+      "rms": 0.24753006097878455,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.10700049087313822,
+      "spectral_delta": {
+        "low_db": 31.073275421023823,
+        "mid_db": 28.802397181203933,
+        "high_db": -3.1171255626923595
+      },
+      "transient_delta": -0.19035808337427834,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "1khz_-12db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.23855866228908615,
+      "rms": 0.1689740455201187,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.05202494055559156,
+      "spectral_delta": {
+        "low_db": 51.815030817093444,
+        "mid_db": -0.4333558227255687,
+        "high_db": 27.443201556841093
+      },
+      "transient_delta": -0.001408140376017511,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.3904099242088094,
+      "rms": 0.14478535871750886,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.054217309301612296,
+      "spectral_delta": {
+        "low_db": 54.78167661698984,
+        "mid_db": -1.775309694655334,
+        "high_db": 32.88720913820711
+      },
+      "transient_delta": -0.006435737594640514,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -2.894903223505895,
+        "gain_std_db": 0.16096732304483102
+      }
+    },
+    "roundtrip": {
+      "peak": 0.20580907079609445,
+      "rms": 0.11830630243482397,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.059466392156845564,
+      "spectral_delta": {
+        "low_db": 46.42638403898752,
+        "mid_db": -3.5295911714625756,
+        "high_db": 13.997260585474576
+      },
+      "transient_delta": -0.011743775336428789,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "1khz_-24db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.021226186536278408,
+      "rms": 0.014988075835557566,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.03060141483305221,
+      "spectral_delta": {
+        "low_db": 31.29557620759684,
+        "mid_db": -9.474902926027175,
+        "high_db": 7.211702267206801
+      },
+      "transient_delta": -0.005929394350639647,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.18721637134435157,
+      "rms": 0.06805900777770518,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.027738447716694887,
+      "spectral_delta": {
+        "low_db": 49.00242784403262,
+        "mid_db": 3.667841566813421,
+        "high_db": 27.219735923021524
+      },
+      "transient_delta": 0.004725577013108056,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": 2.5048158485650247,
+        "gain_std_db": 0.15473400839161583
+      }
+    },
+    "roundtrip": {
+      "peak": 0.055977936327307735,
+      "rms": 0.03150232770267064,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.013160802916687135,
+      "spectral_delta": {
+        "low_db": 35.85631756834423,
+        "mid_db": -3.022961906432568,
+        "high_db": 3.9224783739416096
+      },
+      "transient_delta": -0.002619572351664423,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "1khz_-6db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.7173195995689865,
+      "rms": 0.5227289356617989,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.2115317715867179,
+      "spectral_delta": {
+        "low_db": 62.28726449700549,
+        "mid_db": 3.3758134673076206,
+        "high_db": 41.67172181900672
+      },
+      "transient_delta": 0.04398106311206036,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.5513564614171484,
+      "rms": 0.21018422881354784,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.161825409822439,
+      "spectral_delta": {
+        "low_db": 58.48125189538267,
+        "mid_db": -4.537751390813369,
+        "high_db": 36.77140144475682
+      },
+      "transient_delta": -0.02844427294259925,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -5.594810614492323,
+        "gain_std_db": 0.16450467417259876
+      }
+    },
+    "roundtrip": {
+      "peak": 0.37824043464120777,
+      "rms": 0.22492210947271982,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.12974998142641148,
+      "spectral_delta": {
+        "low_db": 52.257120499538786,
+        "mid_db": -3.9490595730209357,
+        "high_db": 20.57738988124818
+      },
+      "transient_delta": -0.024997950943847533,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "3p15khz_-12db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.29627038442224557,
+      "rms": 0.2112612343345803,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.07144976124711204,
+      "spectral_delta": {
+        "low_db": 232.71623072598675,
+        "mid_db": 1.5064235587060613,
+        "high_db": 43.57369440964377
+      },
+      "transient_delta": 0.02517376069320465,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.462204241772954,
+      "rms": 0.149588084864048,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.0533944453619988,
+      "spectral_delta": {
+        "low_db": 232.2753430809344,
+        "mid_db": -1.4920295782254307,
+        "high_db": 40.368747846081625
+      },
+      "transient_delta": -0.014514865245788683,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -6.153310621793239,
+        "gain_std_db": 0.16810680037518522
+      }
+    },
+    "roundtrip": {
+      "peak": 0.2598044924641271,
+      "rms": 0.1572023002791532,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.02196646174602346,
+      "spectral_delta": {
+        "low_db": 230.46326941664944,
+        "mid_db": -1.0607501200869969,
+        "high_db": 39.02112867314817
+      },
+      "transient_delta": -0.010989893778086832,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "3p15khz_-24db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.026580077162977805,
+      "rms": 0.018867447049666992,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.027424312618048497,
+      "spectral_delta": {
+        "low_db": 211.90554958670265,
+        "mid_db": -7.475578966968415,
+        "high_db": 13.975909961479282
+      },
+      "transient_delta": -0.015561537558730177,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.2239567856889142,
+      "rms": 0.07033845830292633,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.030093584057850686,
+      "spectral_delta": {
+        "low_db": 226.25359124866856,
+        "mid_db": 3.9539348943585084,
+        "high_db": 31.28070286526024
+      },
+      "transient_delta": 0.016849276900548285,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -0.7537921797815992,
+        "gain_std_db": 0.16132378350817006
+      }
+    },
+    "roundtrip": {
+      "peak": 0.07120714329784124,
+      "rms": 0.04188865290859767,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.0034405624437802347,
+      "spectral_delta": {
+        "low_db": 219.43008744876988,
+        "mid_db": -0.5478917078452665,
+        "high_db": 11.642520025284647
+      },
+      "transient_delta": -0.0014385756892040698,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "3p15khz_-6db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.5633800051157112,
+      "rms": 0.4052495224264531,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.13338047880053328,
+      "spectral_delta": {
+        "low_db": 236.56406629899553,
+        "mid_db": 1.1633112193850086,
+        "high_db": 56.68718679624262
+      },
+      "transient_delta": 0.049026673100767526,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.6437641331722618,
+      "rms": 0.21705239461432949,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.15760734582684002,
+      "spectral_delta": {
+        "low_db": 234.59176832053834,
+        "mid_db": -4.258586335185156,
+        "high_db": 42.437592712109115
+      },
+      "transient_delta": -0.07940168864024386,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -8.852997359920533,
+        "gain_std_db": 0.1718797688818148
+      }
+    },
+    "roundtrip": {
+      "peak": 0.47198922931062154,
+      "rms": 0.2566653536951688,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.0988788836813033,
+      "spectral_delta": {
+        "low_db": 234.4443533591446,
+        "mid_db": -2.8028032163230927,
+        "high_db": 47.740155864003185
+      },
+      "transient_delta": -0.055579343678814896,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "400hz_-12db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.23876998491921406,
+      "rms": 0.16906748159938925,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.018327227425946512,
+      "spectral_delta": {
+        "low_db": 55.05104390000835,
+        "mid_db": -0.4287418931497212,
+        "high_db": 18.457313770645083
+      },
+      "transient_delta": -0.0005762510360407119,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.34747153822499954,
+      "rms": 0.14067955014507283,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.04246491540463805,
+      "spectral_delta": {
+        "low_db": 57.173319659964584,
+        "mid_db": -2.0255604294720926,
+        "high_db": 29.203670813513302
+      },
+      "transient_delta": -0.002924028008575486,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -2.5552288781117283,
+        "gain_std_db": 0.1852390010835274
+      }
+    },
+    "roundtrip": {
+      "peak": 0.20610431410078128,
+      "rms": 0.11262640762010913,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.06525462071710479,
+      "spectral_delta": {
+        "low_db": 47.40419976276865,
+        "mid_db": -3.9570624377123083,
+        "high_db": 9.66150794416732
+      },
+      "transient_delta": -0.005166295018370962,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "400hz_-24db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.02124392830960027,
+      "rms": 0.014996785297038276,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.029717787580907384,
+      "spectral_delta": {
+        "low_db": 39.9538077208545,
+        "mid_db": -9.470045052583556,
+        "high_db": -2.184130140476494
+      },
+      "transient_delta": -0.0023658969728244327,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.16572551196272223,
+      "rms": 0.06611040491343695,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999998,
+      "residual_rms": 0.022668439044904322,
+      "spectral_delta": {
+        "low_db": 56.74369170157303,
+        "mid_db": 3.4151319777433278,
+        "high_db": 23.03635946560957
+      },
+      "transient_delta": 0.0017422896983451813,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": 2.844479369622752,
+        "gain_std_db": 0.17994455699659392
+      }
+    },
+    "roundtrip": {
+      "peak": 0.055767185141947305,
+      "rms": 0.029945822082538497,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.014748212122693831,
+      "spectral_delta": {
+        "low_db": 42.12718909726931,
+        "mid_db": -3.4632136180652995,
+        "high_db": 0.10339429499612296
+      },
+      "transient_delta": -0.0011654332553638824,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "400hz_-6db.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.7178186811229285,
+      "rms": 0.5229536134330868,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.17378571801712847,
+      "spectral_delta": {
+        "low_db": 71.07590357642741,
+        "mid_db": 3.379371064722964,
+        "high_db": 28.856208760265467
+      },
+      "transient_delta": 0.017653625536465364,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.49426751026546434,
+      "rms": 0.20430475423854738,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.15426306448932245,
+      "spectral_delta": {
+        "low_db": 66.49948715694386,
+        "mid_db": -4.784539307672531,
+        "high_db": 32.3220222710908
+      },
+      "transient_delta": -0.011863439443354554,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -5.255164046884147,
+        "gain_std_db": 0.18828179273885856
+      }
+    },
+    "roundtrip": {
+      "peak": 0.3811838849946268,
+      "rms": 0.21467707135610214,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.14019207689376656,
+      "spectral_delta": {
+        "low_db": 58.91156824794143,
+        "mid_db": -4.354099009637102,
+        "high_db": 15.105162214018668
+      },
+      "transient_delta": -0.0108045641511165,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "bass_hf_compound.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.9432871204189465,
+      "rms": 0.6012830128717797,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.28074108517267665,
+      "spectral_delta": {
+        "low_db": 5.38163503932417,
+        "mid_db": 55.81105419743372,
+        "high_db": -1.3337204808264846
+      },
+      "transient_delta": -0.0003311442410046661,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.4342093730365679,
+      "rms": 0.16163920869917553,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.1929633744994807,
+      "spectral_delta": {
+        "low_db": -7.668253189938784,
+        "mid_db": 38.55372079456572,
+        "high_db": -2.647490403790746
+      },
+      "transient_delta": -0.05517479413358431,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -7.998492225867727,
+        "gain_std_db": 0.20616140136754899
+      }
+    },
+    "roundtrip": {
+      "peak": 0.6250211019553866,
+      "rms": 0.288950439999816,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999998,
+      "residual_rms": 0.10237501967336529,
+      "spectral_delta": {
+        "low_db": -1.359249812693194,
+        "mid_db": 49.72041875150231,
+        "high_db": -2.344616286071127
+      },
+      "transient_delta": -0.04555804969386448,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "burst_train.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.8834219215147597,
+      "rms": 0.23962784942499207,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.0971078713902182,
+      "spectral_delta": {
+        "low_db": 3.3106632113947243,
+        "mid_db": 3.2774272708849903,
+        "high_db": 0.26215645252655473
+      },
+      "transient_delta": 0.029800623304574433,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.6003286000581916,
+      "rms": 0.09578685363070695,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.07687133841577459,
+      "spectral_delta": {
+        "low_db": -4.333936715598537,
+        "mid_db": -4.688415284801635,
+        "high_db": 1.5004419627486254
+      },
+      "transient_delta": -0.03107592730348646,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -5.113795397495275,
+        "gain_std_db": 0.7231406330211654
+      }
+    },
+    "roundtrip": {
+      "peak": 0.4384544072639565,
+      "rms": 0.10512429259333109,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.05948931251631315,
+      "spectral_delta": {
+        "low_db": -4.440511584108752,
+        "mid_db": -3.8783535497996158,
+        "high_db": -4.570629674698893
+      },
+      "transient_delta": -0.02661205191998514,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "envelope_steps.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 1.0,
+      "rms": 0.4127557011221325,
+      "clipping": true,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.17193132732982885,
+      "spectral_delta": {
+        "low_db": 1.7461654824953545,
+        "mid_db": 3.2155687605907755,
+        "high_db": 18.678850377263384
+      },
+      "transient_delta": 0.04840856735926807,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          true,
+          true
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.5410412171074094,
+      "rms": 0.17122223683455648,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.1355491029585703,
+      "spectral_delta": {
+        "low_db": -3.9864289590963606,
+        "mid_db": -4.427039357698447,
+        "high_db": 3.270262946413141
+      },
+      "transient_delta": -0.04335380064331261,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -3.7583701274912578,
+        "gain_std_db": 2.5178307235539807
+      }
+    },
+    "roundtrip": {
+      "peak": 0.4707988817612127,
+      "rms": 0.17841300382705985,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.10717174546680022,
+      "spectral_delta": {
+        "low_db": -4.034176183044754,
+        "mid_db": -4.069683654007973,
+        "high_db": -3.635091139818928
+      },
+      "transient_delta": -0.034030080061425855,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "log_sweep.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.44255795786602503,
+      "rms": 0.2561049047074522,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999998,
+      "residual_rms": 0.09879569422052456,
+      "spectral_delta": {
+        "low_db": -1.9592413349774245,
+        "mid_db": 1.558862172516882,
+        "high_db": 0.5944104141334553
+      },
+      "transient_delta": 0.026010506098418762,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.7039852802573782,
+      "rms": 0.22555797847468237,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.111419508465391,
+      "spectral_delta": {
+        "low_db": 1.4865817139590745,
+        "mid_db": -2.9506363588995157,
+        "high_db": -3.6020593924245654
+      },
+      "transient_delta": -0.1421720682080057,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -3.9380496852040006,
+        "gain_std_db": 4.34332731558752
+      }
+    },
+    "roundtrip": {
+      "peak": 0.30145819186372924,
+      "rms": 0.16402299363465095,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.10239762876743133,
+      "spectral_delta": {
+        "low_db": -4.667428497160952,
+        "mid_db": -3.107046854578606,
+        "high_db": -2.89737619501469
+      },
+      "transient_delta": -0.12114374276482837,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "music_like_compound.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.5403393650572876,
+      "rms": 0.17049173193755143,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.04224403778896568,
+      "spectral_delta": {
+        "low_db": 1.6821238958430451,
+        "mid_db": 1.2755938979450723,
+        "high_db": 14.785568414450488
+      },
+      "transient_delta": 0.001228859105128613,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.36679379833520953,
+      "rms": 0.10115276347371689,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.048069074952502636,
+      "spectral_delta": {
+        "low_db": -3.134370691401956,
+        "mid_db": -2.5663323430341727,
+        "high_db": 23.25578527111084
+      },
+      "transient_delta": -0.003668130624501999,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -3.052819545184202,
+        "gain_std_db": 1.1719657563937471
+      }
+    },
+    "roundtrip": {
+      "peak": 0.28063911484474025,
+      "rms": 0.09091668159690149,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.054652737149885944,
+      "spectral_delta": {
+        "low_db": -3.887198786700374,
+        "mid_db": -3.9027603103052155,
+        "high_db": 10.879550663083217
+      },
+      "transient_delta": -0.006790901241524516,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "pink_noise.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.20066544404815684,
+      "rms": 0.04861028133341375,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.0357612737745507,
+      "spectral_delta": {
+        "low_db": 0.7037839051428086,
+        "mid_db": -0.4301524937005013,
+        "high_db": -4.900938669195501
+      },
+      "transient_delta": -0.02801542061894953,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.2530358125885898,
+      "rms": 0.05149455194882058,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.036133133528086905,
+      "spectral_delta": {
+        "low_db": -2.294069042030386,
+        "mid_db": -0.2655413072044582,
+        "high_db": 2.8611665384353624
+      },
+      "transient_delta": 0.025611058653775498,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -2.55312134296638,
+        "gain_std_db": 0.2747964528975772
+      }
+    },
+    "roundtrip": {
+      "peak": 0.260691921657396,
+      "rms": 0.05250571701557703,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.04080566896555123,
+      "spectral_delta": {
+        "low_db": 0.4654376739934174,
+        "mid_db": 0.6660036165825672,
+        "high_db": -0.02251937352743117
+      },
+      "transient_delta": -0.0001499335492632231,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "stereo_asym_left_heavy.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.6170236833685926,
+      "rms": 0.3166636096852959,
+      "clipping": false,
+      "correlation_lr": 0.9997561531413873,
+      "residual_rms": 0.0985590860480024,
+      "spectral_delta": {
+        "low_db": 66.40401706259318,
+        "mid_db": 1.730056539937853,
+        "high_db": 26.04489845293604
+      },
+      "transient_delta": 0.005264286693798057,
+      "stereo_mismatch": 0.39892871776716354,
+      "balance_drift": 0.1655711447416662,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.4712815546915768,
+      "rms": 0.1517739872320212,
+      "clipping": false,
+      "correlation_lr": 0.9999954329540197,
+      "residual_rms": 0.09256861794232789,
+      "spectral_delta": {
+        "low_db": 65.56121720507414,
+        "mid_db": -2.949895079964336,
+        "high_db": 32.551719165638104
+      },
+      "transient_delta": -0.00503402714999044,
+      "stereo_mismatch": 0.0988530489784126,
+      "balance_drift": -0.134492704005445,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -2.264108935496266,
+        "gain_std_db": 2.5894459422318037
+      }
+    },
+    "roundtrip": {
+      "peak": 0.3454251691082165,
+      "rms": 0.1432180054214009,
+      "clipping": false,
+      "correlation_lr": 0.9999804287659992,
+      "residual_rms": 0.08992591872830752,
+      "spectral_delta": {
+        "low_db": 56.38175262027368,
+        "mid_db": -4.133473461235296,
+        "high_db": 13.257908317200272
+      },
+      "transient_delta": -0.006566781396237729,
+      "stereo_mismatch": 0.13902827599642345,
+      "balance_drift": -0.0943181654556372,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "stereo_asym_right_heavy.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.6170236833685926,
+      "rms": 0.3166636096852959,
+      "clipping": false,
+      "correlation_lr": 0.9997561531413873,
+      "residual_rms": 0.0985590860480024,
+      "spectral_delta": {
+        "low_db": 66.40401706259318,
+        "mid_db": 1.730056539937853,
+        "high_db": 26.04489845293604
+      },
+      "transient_delta": 0.005264286693798057,
+      "stereo_mismatch": 0.39892871776716354,
+      "balance_drift": -0.1655711447416662,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.4712815546915768,
+      "rms": 0.1517739872320212,
+      "clipping": false,
+      "correlation_lr": 0.9999954329540197,
+      "residual_rms": 0.09256861794232789,
+      "spectral_delta": {
+        "low_db": 65.56121720507414,
+        "mid_db": -2.949895079964336,
+        "high_db": 32.551719165638104
+      },
+      "transient_delta": -0.00503402714999044,
+      "stereo_mismatch": 0.0988530489784126,
+      "balance_drift": 0.134492704005445,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -2.264108935496266,
+        "gain_std_db": 2.5894459422318037
+      }
+    },
+    "roundtrip": {
+      "peak": 0.3454251691082165,
+      "rms": 0.1432180054214009,
+      "clipping": false,
+      "correlation_lr": 0.9999804287659994,
+      "residual_rms": 0.08992591872830752,
+      "spectral_delta": {
+        "low_db": 56.38175262027368,
+        "mid_db": -4.133473461235296,
+        "high_db": 13.257908317200272
+      },
+      "transient_delta": -0.006566781396237729,
+      "stereo_mismatch": 0.13902827599642345,
+      "balance_drift": 0.0943181654556372,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "stereo_identical.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.3227479987855345,
+      "rms": 0.22918953272775852,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.06730612200139985,
+      "spectral_delta": {
+        "low_db": 54.02711907961201,
+        "mid_db": 0.6717439861208094,
+        "high_db": 30.343939978626317
+      },
+      "transient_delta": 0.004200427896054487,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.42739181819806704,
+      "rms": 0.15937979035003969,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.07223547181205753,
+      "spectral_delta": {
+        "low_db": 55.12330739685402,
+        "mid_db": -2.48353268186964,
+        "high_db": 33.918228779728196
+      },
+      "transient_delta": -0.010344881442336189,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -3.5862476728470463,
+        "gain_std_db": 0.1618722450689914
+      }
+    },
+    "roundtrip": {
+      "peak": 0.24166351462299418,
+      "rms": 0.13980179023080705,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.07250749175637415,
+      "spectral_delta": {
+        "low_db": 47.337091296341015,
+        "mid_db": -3.621889507454305,
+        "high_db": 15.679459987530223
+      },
+      "transient_delta": -0.014222118721563627,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "transient_train.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.9554897935454932,
+      "rms": 0.031492981087290844,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.012746339775404295,
+      "spectral_delta": {
+        "low_db": 2.7064600225178226,
+        "mid_db": 0.6615237925263528,
+        "high_db": -4.001462777597533
+      },
+      "transient_delta": 2.080637098136779e-05,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.8831760641116913,
+      "rms": 0.022318981580867394,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.011506882215816038,
+      "spectral_delta": {
+        "low_db": -5.111136467089233,
+        "mid_db": -2.6984278470441514,
+        "high_db": 0.12064288303776309
+      },
+      "transient_delta": 6.551509271424545e-06,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -4.1252509261220585,
+        "gain_std_db": 0.6266732422543448
+      }
+    },
+    "roundtrip": {
+      "peak": 0.6594644762505966,
+      "rms": 0.022195131306794905,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.00869335272456885,
+      "spectral_delta": {
+        "low_db": -2.682492166379518,
+        "mid_db": -2.426683261677472,
+        "high_db": -2.6432915548309532
+      },
+      "transient_delta": 2.7497375573023644e-05,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "white_noise.wav",
+    "fs": 44100,
+    "decode": {
+      "peak": 0.2683027412558234,
+      "rms": 0.05510957712284448,
+      "clipping": false,
+      "correlation_lr": 0.9999999999999999,
+      "residual_rms": 0.014754475864645948,
+      "spectral_delta": {
+        "low_db": 5.321841915509992,
+        "mid_db": 2.721404023233502,
+        "high_db": -0.4814725253215834
+      },
+      "transient_delta": -0.008457895969388729,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "decode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ]
+      }
+    },
+    "encode": {
+      "peak": 0.29811749675313004,
+      "rms": 0.05310778239689779,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.009529855334566123,
+      "spectral_delta": {
+        "low_db": -4.691183593705539,
+        "mid_db": -1.6807961512793343,
+        "high_db": 0.34902202938527555
+      },
+      "transient_delta": 0.006516884245516441,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "encode",
+        "input_clip": [
+          false,
+          false
+        ],
+        "output_clip": [
+          false,
+          false
+        ],
+        "gain_mean_db": -5.103714144888413,
+        "gain_std_db": 0.2828506614010574
+      }
+    },
+    "roundtrip": {
+      "peak": 0.2572343938359908,
+      "rms": 0.05416243100198999,
+      "clipping": false,
+      "correlation_lr": 1.0,
+      "residual_rms": 0.003554169845537258,
+      "spectral_delta": {
+        "low_db": 0.9023196953453667,
+        "mid_db": 0.5907055692995841,
+        "high_db": 0.1177718574671717
+      },
+      "transient_delta": 0.001926566605707447,
+      "stereo_mismatch": 0.0,
+      "balance_drift": 0.0,
+      "nan_inf": false,
+      "meta": {
+        "mode": "roundtrip",
+        "encode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        },
+        "decode": {
+          "input_clip": [
+            false,
+            false
+          ],
+          "output_clip": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  }
+]
