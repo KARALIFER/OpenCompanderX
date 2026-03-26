@@ -14,6 +14,10 @@
 #include <EEPROM.h>
 #include <math.h>
 
+// Forward declaration to keep Arduino auto-prototype generation safe for
+// functions that take PersistSettings before the struct definition appears.
+struct PersistSettings;
+
 namespace OCXProfile {
 static constexpr float kFs = AUDIO_SAMPLE_RATE_EXACT;
 static constexpr int kAudioMemoryBlocks = 64;
