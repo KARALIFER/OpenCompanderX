@@ -41,6 +41,10 @@ static constexpr float kDeemphDb = -6.0f;
 static constexpr float kSoftClipDrive = 1.08f;
 static constexpr float kDcBlockHz = 12.0f;
 static constexpr float kHeadroomDb = 1.0f;
+static constexpr float kW1200OutputTrimDb = -4.0f;
+static constexpr float kW1200Strength = 0.710f;
+static constexpr float kW1200ReferenceDb = -15.0f;
+static constexpr float kW1200HeadroomDb = 3.0f;
 static constexpr float kEncInputTrimDb = 0.0f;
 static constexpr float kEncOutputTrimDb = -1.0f;
 static constexpr float kEncStrength = 0.45f;
@@ -61,6 +65,10 @@ static constexpr float kEncHeadroomDb = 1.0f;
 static constexpr float kToneHz = 400.0f;
 static constexpr float kToneDb = -9.8f;
 }
+
+enum PresetId : uint8_t { PRESET_UNIVERSAL = 0, PRESET_W1200 = 1, PRESET_AUTO_CAL = 2 };
+enum AutoCalState : uint8_t { AUTO_IDLE = 0, AUTO_WAIT_FOR_TONE = 1, AUTO_MEASURE = 2, AUTO_COMPUTE = 3, AUTO_LOCKED = 4, AUTO_FAILED = 5 };
+
 
 static inline float clampf(float x, float lo, float hi) {
   return (x < lo) ? lo : ((x > hi) ? hi : x);
@@ -687,6 +695,8 @@ void AudioEffectOCXType2CodecStereo::update(void) {
 AudioInputI2S                    i2sIn;
 AudioEffectOCXType2CodecStereo  ocx;
 AudioSynthWaveformSine           calTone;
+AudioAnalyzeToneDetect           toneDetectL;
+AudioAnalyzePeak                 peakL;
 AudioMixer4                      mixL;
 AudioMixer4                      mixR;
 AudioOutputI2S                   i2sOut;
@@ -700,6 +710,8 @@ AudioConnection patchCord5(calTone, 0, mixL, 1);
 AudioConnection patchCord6(calTone, 0, mixR, 1);
 AudioConnection patchCord7(mixL, 0, i2sOut, 0);
 AudioConnection patchCord8(mixR, 0, i2sOut, 1);
+AudioConnection patchCord9(i2sIn, 0, toneDetectL, 0);
+AudioConnection patchCord10(i2sIn, 0, peakL, 0);
 
 bool  calToneEnabled = false;
 float calToneDb = OCXProfile::kToneDb;
@@ -707,16 +719,36 @@ float calToneHz = OCXProfile::kToneHz;
 enum ToneChannelMode : uint8_t { TONE_BOTH = 0, TONE_LEFT = 1, TONE_RIGHT = 2 };
 ToneChannelMode toneChannelMode = TONE_BOTH;
 unsigned long lastStatusMs = 0;
+unsigned long autoStateEnterMs = 0;
+unsigned long lastAutoMeasureMs = 0;
+PresetId currentPreset = PRESET_UNIVERSAL;
+AutoCalState autoCalState = AUTO_IDLE;
+bool autoCalValid = false;
+float autoCalReferenceDb = OCXProfile::kReferenceDb;
+float autoCalOutputTrimDb = OCXProfile::kOutputTrimDb;
+float autoCalHeadroomDb = OCXProfile::kHeadroomDb;
+float autoCalScore = 0.0f;
+uint16_t autoBlocksSeen = 0;
+uint16_t autoBlocksValid = 0;
+float autoPeakAccum = 0.0f;
+float autoRmsAccum = 0.0f;
+float autoToneAccum = 0.0f;
+float autoLastPeak = 0.0f;
 
 struct PersistSettings {
   uint32_t magic;
   uint16_t version;
   uint8_t mode;
-  uint8_t reserved[5];
+  uint8_t presetId;
+  uint8_t autoCalValid;
+  uint8_t reserved;
+  float autoCalReferenceDb;
+  float autoCalOutputTrimDb;
+  float autoCalHeadroomDb;
   uint32_t checksum;
 };
 static constexpr uint32_t kSettingsMagic = 0x4F435831u;
-static constexpr uint16_t kSettingsVersion = 1;
+static constexpr uint16_t kSettingsVersion = 2;
 static constexpr int kSettingsAddr = 0;
 
 uint32_t settingsChecksum(const uint8_t *p, size_t n) {
@@ -728,11 +760,67 @@ uint32_t settingsChecksum(const uint8_t *p, size_t n) {
   return x;
 }
 
+const char* presetLabel(uint8_t id) {
+  switch ((PresetId)id) {
+    case PRESET_W1200: return "W1200";
+    case PRESET_AUTO_CAL: return "AUTO_CAL";
+    case PRESET_UNIVERSAL:
+    default: return "UNIVERSAL";
+  }
+}
+
+const char* autoCalStateLabel(uint8_t s) {
+  switch ((AutoCalState)s) {
+    case AUTO_WAIT_FOR_TONE: return "AUTO_WAIT_FOR_TONE";
+    case AUTO_MEASURE: return "AUTO_MEASURE";
+    case AUTO_COMPUTE: return "AUTO_COMPUTE";
+    case AUTO_LOCKED: return "AUTO_LOCKED";
+    case AUTO_FAILED: return "AUTO_FAILED";
+    case AUTO_IDLE:
+    default: return "AUTO_IDLE";
+  }
+}
+
+void applyDecoderPreset(uint8_t id) {
+  ocx.setInputTrimDb(OCXProfile::kInputTrimDb);
+  ocx.setOutputTrimDb(OCXProfile::kOutputTrimDb);
+  ocx.setStrength(OCXProfile::kStrength);
+  ocx.setReferenceDb(OCXProfile::kReferenceDb);
+  ocx.setMaxBoostDb(OCXProfile::kMaxBoostDb);
+  ocx.setMaxCutDb(OCXProfile::kMaxCutDb);
+  ocx.setAttackMs(OCXProfile::kAttackMs);
+  ocx.setReleaseMs(OCXProfile::kReleaseMs);
+  ocx.setSidechainHpHz(OCXProfile::kSidechainHpHz);
+  ocx.setSidechainShelfHz(OCXProfile::kSidechainShelfHz);
+  ocx.setSidechainShelfDb(OCXProfile::kSidechainShelfDb);
+  ocx.setDeemphHz(OCXProfile::kDeemphHz);
+  ocx.setDeemphDb(OCXProfile::kDeemphDb);
+  ocx.setSoftClipDrive(OCXProfile::kSoftClipDrive);
+  ocx.setDcBlockHz(OCXProfile::kDcBlockHz);
+  ocx.setHeadroomDb(OCXProfile::kHeadroomDb);
+  if ((PresetId)id == PRESET_W1200) {
+    ocx.setOutputTrimDb(OCXProfile::kW1200OutputTrimDb);
+    ocx.setStrength(OCXProfile::kW1200Strength);
+    ocx.setReferenceDb(OCXProfile::kW1200ReferenceDb);
+    ocx.setHeadroomDb(OCXProfile::kW1200HeadroomDb);
+  } else if ((PresetId)id == PRESET_AUTO_CAL && autoCalValid) {
+    ocx.setReferenceDb(autoCalReferenceDb);
+    ocx.setOutputTrimDb(autoCalOutputTrimDb);
+    ocx.setHeadroomDb(autoCalHeadroomDb);
+  }
+  currentPreset = (PresetId)id;
+}
+
 void persistSettings() {
   PersistSettings s{};
   s.magic = kSettingsMagic;
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(ocx.getMode());
+  s.presetId = static_cast<uint8_t>(currentPreset);
+  s.autoCalValid = autoCalValid ? 1 : 0;
+  s.autoCalReferenceDb = autoCalReferenceDb;
+  s.autoCalOutputTrimDb = autoCalOutputTrimDb;
+  s.autoCalHeadroomDb = autoCalHeadroomDb;
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
 }
@@ -743,9 +831,22 @@ void loadSettingsOrFactory() {
   const bool ok = s.magic == kSettingsMagic &&
                   s.version == kSettingsVersion &&
                   s.checksum == settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t)) &&
-                  s.mode <= 1;
-  if (ok) ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
-  else ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
+                  s.mode <= 1 &&
+                  s.presetId <= PRESET_AUTO_CAL;
+  if (ok) {
+    ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
+    currentPreset = static_cast<PresetId>(s.presetId);
+    autoCalValid = s.autoCalValid != 0;
+    autoCalReferenceDb = clampf(s.autoCalReferenceDb, -30.0f, -10.0f);
+    autoCalOutputTrimDb = clampf(s.autoCalOutputTrimDb, -6.0f, 0.0f);
+    autoCalHeadroomDb = clampf(s.autoCalHeadroomDb, 0.5f, 4.0f);
+    applyDecoderPreset(currentPreset);
+  } else {
+    ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
+    currentPreset = PRESET_UNIVERSAL;
+    autoCalValid = false;
+    applyDecoderPreset(PRESET_UNIVERSAL);
+  }
 }
 
 void factoryResetSettings() {
@@ -753,9 +854,18 @@ void factoryResetSettings() {
   s.magic = kSettingsMagic;
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(AudioEffectOCXType2CodecStereo::MODE_DECODE);
+  s.presetId = static_cast<uint8_t>(PRESET_UNIVERSAL);
+  s.autoCalValid = 0;
+  s.autoCalReferenceDb = OCXProfile::kReferenceDb;
+  s.autoCalOutputTrimDb = OCXProfile::kOutputTrimDb;
+  s.autoCalHeadroomDb = OCXProfile::kHeadroomDb;
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
   ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
+  autoCalValid = false;
+  autoCalState = AUTO_IDLE;
+  currentPreset = PRESET_UNIVERSAL;
+  applyDecoderPreset(PRESET_UNIVERSAL);
 }
 
 // Keep this helper Arduino-.ino preprocessor safe: use uint8_t in signature to avoid enum prototype ordering issues.
@@ -780,24 +890,86 @@ void updateTone() {
 
 void applyFactoryPreset() {
   ocx.setBypass(false);
-  ocx.setInputTrimDb(OCXProfile::kInputTrimDb);
-  ocx.setOutputTrimDb(OCXProfile::kOutputTrimDb);
-  ocx.setStrength(OCXProfile::kStrength);
-  ocx.setReferenceDb(OCXProfile::kReferenceDb);
-  ocx.setMaxBoostDb(OCXProfile::kMaxBoostDb);
-  ocx.setMaxCutDb(OCXProfile::kMaxCutDb);
-  ocx.setAttackMs(OCXProfile::kAttackMs);
-  ocx.setReleaseMs(OCXProfile::kReleaseMs);
-  ocx.setSidechainHpHz(OCXProfile::kSidechainHpHz);
-  ocx.setSidechainShelfHz(OCXProfile::kSidechainShelfHz);
-  ocx.setSidechainShelfDb(OCXProfile::kSidechainShelfDb);
-  ocx.setDeemphHz(OCXProfile::kDeemphHz);
-  ocx.setDeemphDb(OCXProfile::kDeemphDb);
-  ocx.setSoftClipDrive(OCXProfile::kSoftClipDrive);
-  ocx.setDcBlockHz(OCXProfile::kDcBlockHz);
-  ocx.setHeadroomDb(OCXProfile::kHeadroomDb);
+  applyDecoderPreset(PRESET_UNIVERSAL);
   ocx.resetState();
   ocx.resetSignalDiagnostics();
+}
+
+void beginAutoCal() {
+  autoCalState = AUTO_WAIT_FOR_TONE;
+  autoStateEnterMs = millis();
+  lastAutoMeasureMs = 0;
+  autoBlocksSeen = 0;
+  autoBlocksValid = 0;
+  autoPeakAccum = 0.0f;
+  autoRmsAccum = 0.0f;
+  autoToneAccum = 0.0f;
+  autoLastPeak = 0.0f;
+  autoCalScore = 0.0f;
+}
+
+void computeAutoCalResult() {
+  const float peakAvg = autoPeakAccum / fmaxf((float)autoBlocksValid, 1.0f);
+  const float rmsAvg = autoRmsAccum / fmaxf((float)autoBlocksValid, 1.0f);
+  const float toneAvg = autoToneAccum / fmaxf((float)autoBlocksValid, 1.0f);
+  const float scoreUniversal = fabsf(peakAvg - 0.52f) + fabsf(rmsAvg - 0.30f);
+  const float scoreW1200 = fabsf(peakAvg - 0.42f) + fabsf(rmsAvg - 0.24f);
+  const PresetId base = (scoreW1200 + 0.02f < scoreUniversal) ? PRESET_W1200 : PRESET_UNIVERSAL;
+  const float baseReference = (base == PRESET_W1200) ? OCXProfile::kW1200ReferenceDb : OCXProfile::kReferenceDb;
+  const float baseOutputTrim = (base == PRESET_W1200) ? OCXProfile::kW1200OutputTrimDb : OCXProfile::kOutputTrimDb;
+  const float baseHeadroom = (base == PRESET_W1200) ? OCXProfile::kW1200HeadroomDb : OCXProfile::kHeadroomDb;
+  autoCalReferenceDb = clampf(baseReference + clampf((0.28f - rmsAvg) * 8.0f, -2.0f, 2.0f), baseReference - 2.0f, baseReference + 2.0f);
+  autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.46f - peakAvg) * 6.0f, -1.5f, 1.5f), baseOutputTrim - 1.5f, baseOutputTrim + 1.5f);
+  autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.58f) * 4.0f, -1.0f, 1.0f), baseHeadroom - 1.0f, baseHeadroom + 1.0f);
+  autoCalScore = 100.0f - 100.0f * (fabsf(peakAvg - 0.5f) + fabsf(rmsAvg - 0.28f) + fmaxf(0.0f, 0.6f - toneAvg));
+  autoCalValid = true;
+  currentPreset = PRESET_AUTO_CAL;
+  applyDecoderPreset(PRESET_AUTO_CAL);
+  autoCalState = AUTO_LOCKED;
+  autoStateEnterMs = millis();
+}
+
+void updateAutoCal() {
+  if (autoCalState == AUTO_IDLE || autoCalState == AUTO_LOCKED || autoCalState == AUTO_FAILED) return;
+  const unsigned long now = millis();
+  const float toneStrength = toneDetectL.available() ? toneDetectL.read() : 0.0f;
+  const float peak = peakL.available() ? peakL.read() : 0.0f;
+  const float rmsProxy = peak * 0.707f;
+  const bool levelOk = peak > 0.05f && peak < 0.92f;
+  const bool stabilityOk = fabsf(peak - autoLastPeak) < 0.08f;
+  const bool tonalOk = toneStrength > 0.75f;
+  autoLastPeak = peak;
+
+  if (autoCalState == AUTO_WAIT_FOR_TONE) {
+    if (tonalOk && levelOk) {
+      autoCalState = AUTO_MEASURE;
+      autoStateEnterMs = now;
+      lastAutoMeasureMs = now;
+    } else if (now - autoStateEnterMs > 45000UL) {
+      autoCalState = AUTO_FAILED;
+    }
+    return;
+  }
+
+  if (autoCalState == AUTO_MEASURE) {
+    if (now - lastAutoMeasureMs >= 150UL) {
+      lastAutoMeasureMs = now;
+      ++autoBlocksSeen;
+      if (tonalOk && levelOk && stabilityOk) {
+        ++autoBlocksValid;
+        autoPeakAccum += peak;
+        autoRmsAccum += rmsProxy;
+        autoToneAccum += toneStrength;
+      }
+    }
+    if (autoBlocksValid >= 20 && autoBlocksSeen >= 24) {
+      autoCalState = AUTO_COMPUTE;
+    } else if (autoBlocksSeen > 120) {
+      autoCalState = AUTO_FAILED;
+    }
+  }
+
+  if (autoCalState == AUTO_COMPUTE) computeAutoCalResult();
 }
 
 void printHelp() {
@@ -814,9 +986,15 @@ void printHelp() {
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
   Serial.println(F("  M  : print codec mode"));
+  Serial.println(F("  j  : print preset"));
+  Serial.println(F("  u  : select preset UNIVERSAL"));
+  Serial.println(F("  2  : select preset W1200"));
+  Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
+  Serial.println(F("  J  : print AUTO_CAL state"));
+  Serial.println(F("  L  : print locked AUTO_CAL values"));
   Serial.println(F("  >  : set mode decode"));
   Serial.println(F("  <  : set mode encode"));
-  Serial.println(F("  P  : persist mode/settings"));
+  Serial.println(F("  P  : persist mode/preset/AUTO_CAL settings"));
   Serial.println(F("  !  : factory reset persisted settings"));
   Serial.println(F("  0  : reload factory preset"));
   Serial.println(F("  i/I: input trim -/+ 0.5 dB"));
@@ -885,6 +1063,9 @@ void printCompactTelemetryLine() {
   Serial.print(F(" inClipNew=")); Serial.print(clipDelta.inputNew);
   Serial.print(F(" outClipNew=")); Serial.print(clipDelta.outputNew);
   Serial.print(F(" bypass=")); Serial.print(ocx.getBypass() ? F("ON") : F("OFF"));
+  Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
+  Serial.print(F(" auto=")); Serial.print(autoCalStateLabel(autoCalState));
+  Serial.print(F(" autoValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
   Serial.print(F(" gDb=")); Serial.print(ocx.getLastGainDb(), 2);
   Serial.print(F(" envDb=")); Serial.print(ocx.getLastEnvDb(), 1);
   Serial.print(F(" tone=")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
@@ -989,6 +1170,9 @@ void printStatus() {
   Serial.println();
   Serial.println(F("==== OCX TYPE 2 STATUS ===="));
   Serial.print(F("Mode: ")); Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE"));
+  Serial.print(F("Preset: ")); Serial.println(presetLabel(currentPreset));
+  Serial.print(F("AUTO_CAL state: ")); Serial.println(autoCalStateLabel(autoCalState));
+  Serial.print(F("AUTO_CAL values valid: ")); Serial.println(autoCalValid ? F("YES") : F("NO"));
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.println(F("Bypass mode keeps output protection (headroom + soft clip), not a hard relay bypass."));
   Serial.print(F("Input trim: ")); Serial.print(ocx.getInputTrimDb(), 2); Serial.println(F(" dB"));
@@ -1019,6 +1203,20 @@ void printStatus() {
   printTelemetry();
 }
 
+void printAutoCalStatus() {
+  Serial.print(F("[AUTO_CAL] state=")); Serial.print(autoCalStateLabel(autoCalState));
+  Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
+  Serial.print(F(" valid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F(" blocks=")); Serial.print(autoBlocksValid); Serial.print(F("/")); Serial.print(autoBlocksSeen);
+  Serial.print(F(" score=")); Serial.println(autoCalScore, 2);
+}
+
+void printAutoCalLockedValues() {
+  Serial.print(F("[AUTO_CAL_LOCKED] reference_db=")); Serial.print(autoCalReferenceDb, 2);
+  Serial.print(F(" output_trim_db=")); Serial.print(autoCalOutputTrimDb, 2);
+  Serial.print(F(" headroom_db=")); Serial.println(autoCalHeadroomDb, 2);
+}
+
 void handleSerial() {
   while (Serial.available()) {
     const char c = Serial.read();
@@ -1038,6 +1236,12 @@ void handleSerial() {
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
+      case 'j': Serial.println(presetLabel(currentPreset)); break;
+      case 'u': currentPreset = PRESET_UNIVERSAL; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
+      case '2': currentPreset = PRESET_W1200; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
+      case 'l': beginAutoCal(); break;
+      case 'J': printAutoCalStatus(); break;
+      case 'L': printAutoCalLockedValues(); break;
       case '>': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE); break;
       case '<': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_ENCODE); break;
       case 'P': persistSettings(); break;
@@ -1091,6 +1295,7 @@ void setup() {
   mixL.gain(1, 0.0f);
   mixR.gain(1, 0.0f);
   calTone.amplitude(0.0f);
+  toneDetectL.frequency(1000.0f, 20);
 
   codec.enable();
   codec.inputSelect(AUDIO_INPUT_LINEIN);
@@ -1104,7 +1309,7 @@ void setup() {
   updateTone();
 
   Serial.println();
-  Serial.println(F("OCX Type 2 decoder firmware ready (single universal playback profile)."));
+  Serial.println(F("OCX Type 2 decoder firmware ready (preset system: UNIVERSAL/W1200/AUTO_CAL)."));
   Serial.print(F("Runtime sample-rate (AUDIO_SAMPLE_RATE_EXACT): "));
   Serial.println((double)AUDIO_SAMPLE_RATE_EXACT, 4);
   Serial.println(F("Profile/sample-method baseline remains 44100 Hz nominal for simulator/harness comparability."));
@@ -1115,6 +1320,7 @@ void setup() {
 
 void loop() {
   handleSerial();
+  updateAutoCal();
   const unsigned long now = millis();
   if (now - lastStatusMs > 2000) {
     lastStatusMs = now;

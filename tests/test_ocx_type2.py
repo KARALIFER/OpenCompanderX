@@ -25,6 +25,16 @@ def test_profile_defaults_load_decoder_and_encoder():
     assert enc.tilt_db == 5.0
 
 
+def test_profile_presets_load_w1200_and_auto_cal():
+    w1200 = DecoderParams.from_profile(PROFILE_PATH, preset="w1200")
+    auto_cal = DecoderParams.from_profile(PROFILE_PATH, preset="auto_cal")
+    assert w1200.output_trim_db == -4.0
+    assert w1200.strength == 0.71
+    assert w1200.reference_db == -15.0
+    assert w1200.headroom_db == 3.0
+    assert auto_cal.reference_db == -18.0
+
+
 def test_decoder_finite_bounded_on_required_cases():
     fs = 4000
     params = DecoderParams.from_profile(PROFILE_PATH)
@@ -77,6 +87,14 @@ def test_harness_mode_calls_do_not_crash_and_emit_metrics(tmp_path):
         assert rows
         assert "mse" in rows[0]
         assert "correlation" in rows[0]
+
+
+def test_harness_supports_w1200_preset():
+    fs = 4000
+    specs = {k: v for k, v in list(build_case_specs(fs).items())[:3]}
+    rows = harness_module.evaluate_candidate(PROFILE_PATH, fs, specs, mode="decode", preset="w1200")
+    assert rows
+    assert rows[0]["mode"] == "decode"
 
 
 def test_roundtrip_metrics_are_produced():

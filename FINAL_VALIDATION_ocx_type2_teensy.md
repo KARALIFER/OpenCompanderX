@@ -169,6 +169,19 @@ Der Snapshot enthält jetzt außerdem:
 
 Für Clipping gibt es neben den kumulativen Zählern jetzt `inClipNew/outClipNew` in der kompakten `m`-Zeile sowie das Kommando `v`, damit neue Übersteuerungen seit der letzten Abfrage direkt sichtbar sind.
 
+### Linux/Teensy Host-Hinweis (Arduino-CLI)
+
+Wenn `arduino-cli compile` oder Upload-Flows auf Linux einen Hinweis zu fehlender
+`/etc/udev/rules.d/00-teensy.rules` ausgeben, sollte die PJRC-Regel einmalig installiert werden:
+
+```bash
+cd /tmp
+wget https://www.pjrc.com/teensy/00-teensy.rules
+sudo install -m 644 /tmp/00-teensy.rules /etc/udev/rules.d/00-teensy.rules
+```
+
+Das ist ein Host-Setup-Thema (udev/USB-Rechte), kein DSP-/Profil-Fehler der Firmware.
+
 Zusätzliche Repo-/Gate-Festlegung:
 - Der `.ino`-Pfad wird ausdrücklich berücksichtigt; `toneChannelModeLabel` nutzt eine `uint8_t`-Signatur, um bekannte Arduino-Preprocessor-Prototyp-Fallen mit Enum-Typen zu vermeiden.
 
