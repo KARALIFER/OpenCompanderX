@@ -43,10 +43,15 @@ The following aspects can only be fully evaluated on real hardware:
 
 ## Profile principle
 
-There is **one conservative universal profile** for the fixed target hardware.  
-There is no multi-profile system and no auto-detection.
+There are now three selectable presets:
 
-Current state `ocx_type2_universal_v2`:
+- `universal` (default after factory reset; unchanged baseline)
+- `w1200` (fixed preset for the measured TEAC W-1200 setup point)
+- `auto_cal` (explicit 1-kHz measurement-tape calibration mode; no live music auto-regulation)
+
+There is still no automatic program-dependent profile switching during music playback.
+
+Universal baseline (`ocx_type2_universal_v3_codec`) remains:
 
 - `sample_rate_hz = 44100`
 - `audio_memory_blocks = 64`
@@ -178,6 +183,14 @@ python -m py_compile tests/test_ocx_type2.py
 pytest -q
 pio run -e teensy41
 arduino-cli compile --fqbn teensy:avr:teensy41 ocx_type2_teensy41_decoder.ino
+```
+
+If Arduino-CLI prints a Teensy udev warning on Linux (`/etc/udev/rules.d/00-teensy.rules` missing), install PJRC's rule once:
+
+```bash
+cd /tmp
+wget https://www.pjrc.com/teensy/00-teensy.rules
+sudo install -m 644 /tmp/00-teensy.rules /etc/udev/rules.d/00-teensy.rules
 ```
 
 ## Harness and tuning examples

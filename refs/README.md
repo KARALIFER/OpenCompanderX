@@ -21,3 +21,7 @@ Use `python3 ocx_type2_harness.py --generate-synth-refs --reference-dir refs` to
 Use `python3 ocx_type2_harness.py --prepare-known-music-candidates --reference-dir refs` to import local `musik_enc.wav` / `musicfox_shopping_street.mp3` if present.
 
 Real references are intentionally empty by default unless legal files with clear rights are available.
+
+Additional calibration documentation:
+
+- `refs/AUTO_CAL_MEASUREMENT_TAPE.md` describes the dedicated 1-kHz measurement cassette workflow for AUTO_CAL.

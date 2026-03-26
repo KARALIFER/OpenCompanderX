@@ -16,6 +16,23 @@ import soundfile as sf
 PROFILE_PATH = Path(__file__).with_name("ocx_type2_profile.json")
 
 
+def load_profile_section(profile_path: Path, section: str, preset: str = "universal") -> dict[str, Any]:
+    profile = json.loads(profile_path.read_text())
+    presets = profile.get("presets", {})
+    section_presets = presets.get(section, {}) if isinstance(presets, dict) else {}
+    default_preset = str(presets.get("default", "universal")) if isinstance(presets, dict) else "universal"
+    effective_preset = preset or default_preset
+    if isinstance(section_presets, dict) and effective_preset in section_presets:
+        base = dict(section_presets[effective_preset])
+    elif section in profile:
+        base = dict(profile[section])
+    elif isinstance(section_presets, dict) and default_preset in section_presets:
+        base = dict(section_presets[default_preset])
+    else:
+        raise KeyError(f"Profile section '{section}' not found in {profile_path}")
+    return base
+
+
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -95,9 +112,8 @@ class DecoderParams:
     bypass: bool = False
 
     @classmethod
-    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "DecoderParams":
-        profile = json.loads(profile_path.read_text())
-        section = profile["decoder"].copy()
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, preset: str = "universal", **overrides: Any) -> "DecoderParams":
+        section = load_profile_section(profile_path, "decoder", preset=preset)
         section.update(overrides)
         return cls(**section)
 
@@ -125,17 +141,16 @@ class EncoderParams:
     bypass: bool = False
 
     @classmethod
-    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "EncoderParams":
-        profile = json.loads(profile_path.read_text())
-        section = profile["encoder"].copy()
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, preset: str = "universal", **overrides: Any) -> "EncoderParams":
+        section = load_profile_section(profile_path, "encoder", preset=preset)
         section.update(overrides)
         return cls(**section)
 
 
 class Params(DecoderParams):
     @classmethod
-    def from_profile(cls, profile_path: Path = PROFILE_PATH, **overrides: Any) -> "Params":
-        base = DecoderParams.from_profile(profile_path, **overrides)
+    def from_profile(cls, profile_path: Path = PROFILE_PATH, preset: str = "universal", **overrides: Any) -> "Params":
+        base = DecoderParams.from_profile(profile_path, preset=preset, **overrides)
         return cls(**base.__dict__)
 
 
@@ -315,14 +330,14 @@ class Encoder(_CompanderCore):
         super().__init__(fs, params, mode="encode")
 
 
-def run_mode(audio: np.ndarray, fs: int, mode: str, profile: Path, overrides: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
+def run_mode(audio: np.ndarray, fs: int, mode: str, profile: Path, overrides: dict[str, Any], preset: str = "universal") -> tuple[np.ndarray, dict[str, Any]]:
     mode = mode.lower().strip()
     if mode == "decode":
-        proc = Decoder(fs, DecoderParams.from_profile(profile, **overrides))
+        proc = Decoder(fs, DecoderParams.from_profile(profile, preset=preset, **overrides))
         out = proc.process(audio)
         return out, {"mode": mode, "input_clip": proc.input_clip.tolist(), "output_clip": proc.output_clip.tolist()}
     if mode == "encode":
-        proc = Encoder(fs, EncoderParams.from_profile(profile, **overrides))
+        proc = Encoder(fs, EncoderParams.from_profile(profile, preset=preset, **overrides))
         out = proc.process(audio)
         gains = np.asarray(proc.gain_db_log) if proc.gain_db_log else np.zeros(1)
         return out, {
@@ -333,8 +348,8 @@ def run_mode(audio: np.ndarray, fs: int, mode: str, profile: Path, overrides: di
             "gain_std_db": float(np.std(gains)),
         }
     if mode == "roundtrip":
-        enc = Encoder(fs, EncoderParams.from_profile(profile, **overrides))
-        dec = Decoder(fs, DecoderParams.from_profile(profile))
+        enc = Encoder(fs, EncoderParams.from_profile(profile, preset=preset, **overrides))
+        dec = Decoder(fs, DecoderParams.from_profile(profile, preset=preset))
         encoded = enc.process(audio)
         out = dec.process(encoded)
         return out, {
@@ -351,6 +366,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("output_wav", type=Path)
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
+    ap.add_argument("--preset", choices=["universal", "w1200", "auto_cal"], default="universal")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--bypass", action="store_true")
     ap.add_argument("--override", action="append", default=[], help="Override as key=value (repeatable)")
@@ -381,7 +397,7 @@ def main() -> None:
     overrides = parse_overrides(args.override)
     if args.bypass:
         overrides["bypass"] = True
-    out, meta = run_mode(audio, fs, args.mode, args.profile, overrides)
+    out, meta = run_mode(audio, fs, args.mode, args.profile, overrides, preset=args.preset)
     write_audio(args.output_wav, fs, out)
     print(json.dumps({"input": summarize_signal("input", audio), "output": summarize_signal("output", out), **meta}, indent=2))
 
