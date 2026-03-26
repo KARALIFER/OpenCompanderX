@@ -13,6 +13,7 @@
 #include <SPI.h>
 #include <EEPROM.h>
 #include <math.h>
+#include <string.h>
 
 // Forward declaration to keep Arduino auto-prototype generation safe for
 // functions that take PersistSettings before the struct definition appears.
@@ -766,11 +767,32 @@ bool autoFreshToneL = false;
 bool autoFreshToneR = false;
 bool autoFreshPeakL = false;
 bool autoFreshPeakR = false;
+bool autoFreshWindowToneL = false;
+bool autoFreshWindowToneR = false;
+bool autoFreshWindowPeakL = false;
+bool autoFreshWindowPeakR = false;
+bool autoFreshWindowOk = false;
+bool autoLrCheckActive = false;
+float autoLatchedToneL = 0.0f;
+float autoLatchedToneR = 0.0f;
+float autoLatchedPeakL = 0.0f;
+float autoLatchedPeakR = 0.0f;
+uint16_t autoToneAgeMsL = 65535;
+uint16_t autoToneAgeMsR = 65535;
+uint16_t autoPeakAgeMsL = 65535;
+uint16_t autoPeakAgeMsR = 65535;
+unsigned long autoLastToneFreshMsL = 0;
+unsigned long autoLastToneFreshMsR = 0;
+unsigned long autoLastPeakFreshMsL = 0;
+unsigned long autoLastPeakFreshMsR = 0;
 bool autoLevelOk = false;
 bool autoTonalOk = false;
 bool autoStabilityOk = false;
 bool autoLrOk = false;
+const char* autoGateBlockReason = "none";
 const char* autoRejectReason = "none";
+static constexpr unsigned long kAutoFreshWindowMs = 450UL;
+static constexpr unsigned long kAutoWarmupMs = 1200UL;
 
 struct PersistSettings {
   uint32_t magic;
@@ -962,10 +984,29 @@ void beginAutoCal() {
   autoFreshToneR = false;
   autoFreshPeakL = false;
   autoFreshPeakR = false;
+  autoFreshWindowToneL = false;
+  autoFreshWindowToneR = false;
+  autoFreshWindowPeakL = false;
+  autoFreshWindowPeakR = false;
+  autoFreshWindowOk = false;
+  autoLrCheckActive = false;
+  autoLatchedToneL = 0.0f;
+  autoLatchedToneR = 0.0f;
+  autoLatchedPeakL = 0.0f;
+  autoLatchedPeakR = 0.0f;
+  autoToneAgeMsL = 65535;
+  autoToneAgeMsR = 65535;
+  autoPeakAgeMsL = 65535;
+  autoPeakAgeMsR = 65535;
+  autoLastToneFreshMsL = 0;
+  autoLastToneFreshMsR = 0;
+  autoLastPeakFreshMsL = 0;
+  autoLastPeakFreshMsR = 0;
   autoLevelOk = false;
   autoTonalOk = false;
   autoStabilityOk = false;
   autoLrOk = false;
+  autoGateBlockReason = "none";
   autoRejectReason = "none";
   autoCalScore = 0.0f;
 }
@@ -1017,7 +1058,7 @@ float combinedToneMetricFromBins(float lo, float mid, float hi) {
   return clampf(fmaxf(mid, 0.65f * fmaxf(lo, hi) + 0.35f * mid), 0.0f, 1.5f);
 }
 
-void captureAutoCalInputs() {
+void captureAutoCalInputs(unsigned long now) {
   float loL = autoToneMetricL;
   float midL = autoToneMetricL;
   float hiL = autoToneMetricL;
@@ -1041,6 +1082,23 @@ void captureAutoCalInputs() {
 
   autoToneMetricL = combinedToneMetricFromBins(loL, midL, hiL);
   autoToneMetricR = combinedToneMetricFromBins(loR, midR, hiR);
+  if (autoFreshToneL) autoLastToneFreshMsL = now;
+  if (autoFreshToneR) autoLastToneFreshMsR = now;
+  if (autoFreshPeakL) autoLastPeakFreshMsL = now;
+  if (autoFreshPeakR) autoLastPeakFreshMsR = now;
+  autoToneAgeMsL = (autoLastToneFreshMsL > 0) ? (uint16_t)fminf((float)(now - autoLastToneFreshMsL), 65535.0f) : 65535;
+  autoToneAgeMsR = (autoLastToneFreshMsR > 0) ? (uint16_t)fminf((float)(now - autoLastToneFreshMsR), 65535.0f) : 65535;
+  autoPeakAgeMsL = (autoLastPeakFreshMsL > 0) ? (uint16_t)fminf((float)(now - autoLastPeakFreshMsL), 65535.0f) : 65535;
+  autoPeakAgeMsR = (autoLastPeakFreshMsR > 0) ? (uint16_t)fminf((float)(now - autoLastPeakFreshMsR), 65535.0f) : 65535;
+  autoFreshWindowToneL = autoToneAgeMsL <= kAutoFreshWindowMs;
+  autoFreshWindowToneR = autoToneAgeMsR <= kAutoFreshWindowMs;
+  autoFreshWindowPeakL = autoPeakAgeMsL <= kAutoFreshWindowMs;
+  autoFreshWindowPeakR = autoPeakAgeMsR <= kAutoFreshWindowMs;
+  autoFreshWindowOk = autoFreshWindowToneL && autoFreshWindowToneR && autoFreshWindowPeakL && autoFreshWindowPeakR;
+  autoLatchedToneL = autoToneMetricL;
+  autoLatchedToneR = autoToneMetricR;
+  autoLatchedPeakL = autoPeakL;
+  autoLatchedPeakR = autoPeakR;
   autoRmsProxyL = autoPeakL * 0.707f;
   autoRmsProxyR = autoPeakR * 0.707f;
 }
@@ -1053,7 +1111,8 @@ void updateAutoCalGateFlags() {
   autoLevelOk = peakMono > 0.030f && peakMono < 0.95f;
   autoTonalOk = toneMetric > 0.46f;
   autoStabilityOk = fabsf(autoPeakL - autoLastPeakL) < 0.12f && fabsf(autoPeakR - autoLastPeakR) < 0.12f;
-  autoLrOk = lrPeakMismatch < 0.55f && lrToneMismatch < 0.70f;
+  autoLrCheckActive = peakMono >= 0.06f;
+  autoLrOk = (!autoLrCheckActive) || (lrPeakMismatch < 0.55f && lrToneMismatch < 0.70f);
   autoLastPeakL = autoPeakL;
   autoLastPeakR = autoPeakR;
   autoLastPeak = peakMono;
@@ -1082,10 +1141,26 @@ void printAutoCalRawTelemetry() {
   Serial.print(F(" freshToneR=")); Serial.print(autoFreshToneR ? F("YES") : F("NO"));
   Serial.print(F(" freshPeakL=")); Serial.print(autoFreshPeakL ? F("YES") : F("NO"));
   Serial.print(F(" freshPeakR=")); Serial.print(autoFreshPeakR ? F("YES") : F("NO"));
+  Serial.print(F(" freshWinToneL=")); Serial.print(autoFreshWindowToneL ? F("YES") : F("NO"));
+  Serial.print(F(" freshWinToneR=")); Serial.print(autoFreshWindowToneR ? F("YES") : F("NO"));
+  Serial.print(F(" freshWinPeakL=")); Serial.print(autoFreshWindowPeakL ? F("YES") : F("NO"));
+  Serial.print(F(" freshWinPeakR=")); Serial.print(autoFreshWindowPeakR ? F("YES") : F("NO"));
+  Serial.print(F(" toneAgeL_ms=")); Serial.print(autoToneAgeMsL);
+  Serial.print(F(" toneAgeR_ms=")); Serial.print(autoToneAgeMsR);
+  Serial.print(F(" peakAgeL_ms=")); Serial.print(autoPeakAgeMsL);
+  Serial.print(F(" peakAgeR_ms=")); Serial.print(autoPeakAgeMsR);
+  Serial.print(F(" latchedToneL=")); Serial.print(autoLatchedToneL, 3);
+  Serial.print(F(" latchedToneR=")); Serial.print(autoLatchedToneR, 3);
+  Serial.print(F(" latchedPeakL=")); Serial.print(autoLatchedPeakL, 4);
+  Serial.print(F(" latchedPeakR=")); Serial.print(autoLatchedPeakR, 4);
+  Serial.print(F(" lrCheck=")); Serial.print(autoLrCheckActive ? F("ACTIVE") : F("LOW_LEVEL_BYPASS"));
   Serial.print(F(" blocksSeen=")); Serial.print(autoBlocksSeen);
   Serial.print(F(" blocksValid=")); Serial.print(autoBlocksValid);
   Serial.print(F(" toneBlocks=")); Serial.print(autoToneBlocks);
   Serial.print(F(" toneSeg=")); Serial.print(autoToneSegments);
+  Serial.print(F(" goodWin=")); Serial.print(autoConsecutiveToneReady);
+  Serial.print(F(" gateBlock=")); Serial.print(autoGateBlockReason);
+  Serial.print(F(" outClipCount=")); Serial.print(ocx.getOutputClipCount());
   Serial.print(F(" stateMs=")); Serial.print(millis() - autoStateEnterMs);
   Serial.print(F(" reject=")); Serial.println(autoRejectReason);
 }
@@ -1100,17 +1175,22 @@ void maybePrintAutoCalPeriodic(unsigned long now) {
 void updateAutoCal() {
   if (autoCalState == AUTO_IDLE || autoCalState == AUTO_LOCKED || autoCalState == AUTO_FAILED) return;
   const unsigned long now = millis();
-  captureAutoCalInputs();
+  captureAutoCalInputs(now);
   updateAutoCalGateFlags();
   maybePrintAutoCalPeriodic(now);
-  const bool freshOk = autoFreshToneL && autoFreshToneR && autoFreshPeakL && autoFreshPeakR;
-  if (!freshOk) setAutoRejectReason("reject_no_fresh_data");
-  const bool gateOk = freshOk && autoTonalOk && autoLevelOk && autoStabilityOk && autoLrOk;
-  if (!autoLevelOk && autoLastPeak <= 0.030f) setAutoRejectReason("reject_peak_too_low");
-  if (!autoLevelOk && autoLastPeak >= 0.95f) setAutoRejectReason("reject_peak_too_high");
-  if (!autoTonalOk) setAutoRejectReason("reject_tone_too_weak");
-  if (!autoStabilityOk) setAutoRejectReason("reject_unstable");
-  if (!autoLrOk) setAutoRejectReason("reject_lr_mismatch");
+  const bool warmupDone = (now - autoStateEnterMs) >= kAutoWarmupMs;
+  const bool freshOk = autoFreshWindowOk;
+  const char* gateBlock = "none";
+  if (!warmupDone) gateBlock = "reject_wait_warmup";
+  else if (!freshOk) gateBlock = "reject_no_fresh_data";
+  else if (!autoLevelOk && autoLastPeak <= 0.030f) gateBlock = "reject_peak_too_low";
+  else if (!autoLevelOk && autoLastPeak >= 0.95f) gateBlock = "reject_peak_too_high";
+  else if (!autoTonalOk) gateBlock = "reject_tone_too_weak";
+  else if (!autoStabilityOk) gateBlock = "reject_unstable";
+  else if (!autoLrOk) gateBlock = "reject_lr_mismatch";
+  const bool gateOk = strcmp(gateBlock, "none") == 0;
+  autoGateBlockReason = gateBlock;
+  setAutoRejectReason(gateBlock);
 
   if (autoCalState == AUTO_WAIT_FOR_TONE) {
     if (gateOk) {
@@ -1123,6 +1203,7 @@ void updateAutoCal() {
       autoStateEnterMs = now;
       lastAutoMeasureMs = now;
       autoRejectReason = "none";
+      autoGateBlockReason = "none";
     } else if (now - autoStateEnterMs > 75000UL) {
       autoCalState = AUTO_FAILED;
       setAutoRejectReason("reject_tone_too_weak");

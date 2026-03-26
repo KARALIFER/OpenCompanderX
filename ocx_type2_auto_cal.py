@@ -17,6 +17,10 @@ class ToneTelemetry:
     fresh_tone_right: bool = True
     fresh_peak_left: bool = True
     fresh_peak_right: bool = True
+    tone_left_age_ms: int = 0
+    tone_right_age_ms: int = 0
+    peak_left_age_ms: int = 0
+    peak_right_age_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -33,13 +37,24 @@ class ToneAcceptance:
 def evaluate_tone_acceptance(t: ToneTelemetry, prev_peak_left: float, prev_peak_right: float) -> ToneAcceptance:
     peak_mono = max(t.peak_left, t.peak_right)
     tone_metric = max(t.tone_left, t.tone_right)
-    fresh_ok = t.fresh_tone_left and t.fresh_tone_right and t.fresh_peak_left and t.fresh_peak_right
+    fresh_window_ms = 450
+    fresh_ok = (
+        t.fresh_tone_left
+        and t.fresh_tone_right
+        and t.fresh_peak_left
+        and t.fresh_peak_right
+        and t.tone_left_age_ms <= fresh_window_ms
+        and t.tone_right_age_ms <= fresh_window_ms
+        and t.peak_left_age_ms <= fresh_window_ms
+        and t.peak_right_age_ms <= fresh_window_ms
+    )
     level_ok = 0.03 < peak_mono < 0.95
     tonal_ok = tone_metric > 0.46
     stability_ok = abs(t.peak_left - prev_peak_left) < 0.12 and abs(t.peak_right - prev_peak_right) < 0.12
     lr_peak_mismatch = abs(t.peak_left - t.peak_right) / max(peak_mono, 1.0e-6)
     lr_tone_mismatch = abs(t.tone_left - t.tone_right) / max(tone_metric, 1.0e-6)
-    lr_ok = lr_peak_mismatch < 0.55 and lr_tone_mismatch < 0.70
+    lr_relevant = peak_mono >= 0.06
+    lr_ok = (not lr_relevant) or (lr_peak_mismatch < 0.55 and lr_tone_mismatch < 0.70)
 
     reason = "none"
     if not fresh_ok:
