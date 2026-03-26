@@ -42,10 +42,6 @@ static constexpr float kDeemphDb = -6.0f;
 static constexpr float kSoftClipDrive = 1.08f;
 static constexpr float kDcBlockHz = 12.0f;
 static constexpr float kHeadroomDb = 1.0f;
-static constexpr float kW1200OutputTrimDb = -4.0f;
-static constexpr float kW1200Strength = 0.710f;
-static constexpr float kW1200ReferenceDb = -15.0f;
-static constexpr float kW1200HeadroomDb = 3.0f;
 static constexpr float kEncInputTrimDb = 0.0f;
 static constexpr float kEncOutputTrimDb = -1.0f;
 static constexpr float kEncStrength = 0.45f;
@@ -67,7 +63,7 @@ static constexpr float kToneHz = 400.0f;
 static constexpr float kToneDb = -9.8f;
 }
 
-enum PresetId : uint8_t { PRESET_UNIVERSAL = 0, PRESET_W1200 = 1, PRESET_AUTO_CAL = 2 };
+enum PresetId : uint8_t { PRESET_UNIVERSAL = 0, PRESET_AUTO_CAL = 1 };
 enum AutoCalState : uint8_t { AUTO_IDLE = 0, AUTO_WAIT_FOR_TONE = 1, AUTO_MEASURE = 2, AUTO_COMPUTE = 3, AUTO_LOCKED = 4, AUTO_FAILED = 5 };
 
 
@@ -740,6 +736,39 @@ bool autoCalValid = false;
 float autoCalReferenceDb = OCXProfile::kReferenceDb;
 float autoCalOutputTrimDb = OCXProfile::kOutputTrimDb;
 float autoCalHeadroomDb = OCXProfile::kHeadroomDb;
+float staticReferenceDb = OCXProfile::kReferenceDb;
+float staticOutputTrimDb = OCXProfile::kOutputTrimDb;
+float staticHeadroomDb = OCXProfile::kHeadroomDb;
+bool guardEnabled = true;
+float guardTrimOffsetDb = 0.0f;             // 0 .. -3 dB
+float guardHeadroomOffsetDb = 0.0f;         // 0 .. +2.5 dB
+float guardBoostCapReductionDb = 0.0f;      // 0 .. -3 dB
+float guardTrimOffsetPersistedDb = 0.0f;
+float guardHeadroomOffsetPersistedDb = 0.0f;
+float guardBoostCapReductionPersistedDb = 0.0f;
+bool guardDirty = false;
+unsigned long guardLastStateChangeMs = 0;
+unsigned long guardLastPersistMs = 0;
+unsigned long guardLastTickMs = 0;
+unsigned long guardLastBrakeMs = 0;
+uint8_t guardWindowPos = 0;
+uint8_t guardWindowCount = 0;
+uint16_t guardWindowClip1s = 0;
+uint16_t guardWindowNearLimit10s = 0;
+uint16_t guardWindowBoostClamp10s = 0;
+enum GuardState : uint8_t { GUARD_IDLE = 0, GUARD_BRAKE_A = 1, GUARD_PROTECT_B = 2, GUARD_RELAX_C = 3, GUARD_SETTLED = 4 };
+GuardState guardState = GUARD_IDLE;
+const char* guardReason = "boot";
+static constexpr float kGuardMinTrimOffsetDb = -3.0f;
+static constexpr float kGuardMaxTrimOffsetDb = 0.0f;
+static constexpr float kGuardMinHeadroomOffsetDb = 0.0f;
+static constexpr float kGuardMaxHeadroomOffsetDb = 2.5f;
+static constexpr float kGuardMinBoostReductionDb = -3.0f;
+static constexpr float kGuardMaxBoostReductionDb = 0.0f;
+static constexpr uint8_t kGuardWindowSeconds = 60;
+uint16_t guardClipBins[kGuardWindowSeconds] = {0};
+uint16_t guardNearBins[kGuardWindowSeconds] = {0};
+uint16_t guardBoostBins[kGuardWindowSeconds] = {0};
 float autoCalScore = 0.0f;
 uint16_t autoBlocksSeen = 0;
 uint16_t autoBlocksValid = 0;
@@ -800,14 +829,18 @@ struct PersistSettings {
   uint8_t mode;
   uint8_t presetId;
   uint8_t autoCalValid;
-  uint8_t reserved;
+  uint8_t guardEnabled;
   float autoCalReferenceDb;
   float autoCalOutputTrimDb;
   float autoCalHeadroomDb;
+  float guardTrimOffsetDb;
+  float guardHeadroomOffsetDb;
+  float guardBoostCapReductionDb;
+  uint32_t guardLastPersistMs;
   uint32_t checksum;
 };
 static constexpr uint32_t kSettingsMagic = 0x4F435831u;
-static constexpr uint16_t kSettingsVersion = 2;
+static constexpr uint16_t kSettingsVersion = 3;
 static constexpr int kSettingsAddr = 0;
 
 uint32_t settingsChecksum(const uint8_t *p, size_t n) {
@@ -821,11 +854,31 @@ uint32_t settingsChecksum(const uint8_t *p, size_t n) {
 
 const char* presetLabel(uint8_t id) {
   switch ((PresetId)id) {
-    case PRESET_W1200: return "W1200";
     case PRESET_AUTO_CAL: return "AUTO_CAL";
     case PRESET_UNIVERSAL:
     default: return "UNIVERSAL";
   }
+}
+
+const char* guardStateLabel(uint8_t s) {
+  switch ((GuardState)s) {
+    case GUARD_BRAKE_A: return "BRAKE_A";
+    case GUARD_PROTECT_B: return "PROTECT_B";
+    case GUARD_RELAX_C: return "RELAX_C";
+    case GUARD_SETTLED: return "SETTLED";
+    case GUARD_IDLE:
+    default: return "IDLE";
+  }
+}
+
+void applyEffectiveDecoderSettings() {
+  const float effectiveTrim = clampf(staticOutputTrimDb + guardTrimOffsetDb, -18.0f, 18.0f);
+  const float effectiveHeadroom = clampf(staticHeadroomDb + guardHeadroomOffsetDb, 0.0f, 6.0f);
+  const float effectiveMaxBoost = clampf(OCXProfile::kMaxBoostDb + guardBoostCapReductionDb, 0.0f, 24.0f);
+  ocx.setReferenceDb(staticReferenceDb);
+  ocx.setOutputTrimDb(effectiveTrim);
+  ocx.setHeadroomDb(effectiveHeadroom);
+  ocx.setMaxBoostDb(effectiveMaxBoost);
 }
 
 const char* autoCalStateLabel(uint8_t s) {
@@ -842,10 +895,7 @@ const char* autoCalStateLabel(uint8_t s) {
 
 void applyDecoderPreset(uint8_t id) {
   ocx.setInputTrimDb(OCXProfile::kInputTrimDb);
-  ocx.setOutputTrimDb(OCXProfile::kOutputTrimDb);
   ocx.setStrength(OCXProfile::kStrength);
-  ocx.setReferenceDb(OCXProfile::kReferenceDb);
-  ocx.setMaxBoostDb(OCXProfile::kMaxBoostDb);
   ocx.setMaxCutDb(OCXProfile::kMaxCutDb);
   ocx.setAttackMs(OCXProfile::kAttackMs);
   ocx.setReleaseMs(OCXProfile::kReleaseMs);
@@ -856,17 +906,15 @@ void applyDecoderPreset(uint8_t id) {
   ocx.setDeemphDb(OCXProfile::kDeemphDb);
   ocx.setSoftClipDrive(OCXProfile::kSoftClipDrive);
   ocx.setDcBlockHz(OCXProfile::kDcBlockHz);
-  ocx.setHeadroomDb(OCXProfile::kHeadroomDb);
-  if ((PresetId)id == PRESET_W1200) {
-    ocx.setOutputTrimDb(OCXProfile::kW1200OutputTrimDb);
-    ocx.setStrength(OCXProfile::kW1200Strength);
-    ocx.setReferenceDb(OCXProfile::kW1200ReferenceDb);
-    ocx.setHeadroomDb(OCXProfile::kW1200HeadroomDb);
-  } else if ((PresetId)id == PRESET_AUTO_CAL && autoCalValid) {
-    ocx.setReferenceDb(autoCalReferenceDb);
-    ocx.setOutputTrimDb(autoCalOutputTrimDb);
-    ocx.setHeadroomDb(autoCalHeadroomDb);
+  staticReferenceDb = OCXProfile::kReferenceDb;
+  staticOutputTrimDb = OCXProfile::kOutputTrimDb;
+  staticHeadroomDb = OCXProfile::kHeadroomDb;
+  if ((PresetId)id == PRESET_AUTO_CAL && autoCalValid) {
+    staticReferenceDb = autoCalReferenceDb;
+    staticOutputTrimDb = autoCalOutputTrimDb;
+    staticHeadroomDb = autoCalHeadroomDb;
   }
+  applyEffectiveDecoderSettings();
   currentPreset = (PresetId)id;
 }
 
@@ -877,11 +925,21 @@ void persistSettings() {
   s.mode = static_cast<uint8_t>(ocx.getMode());
   s.presetId = static_cast<uint8_t>(currentPreset);
   s.autoCalValid = autoCalValid ? 1 : 0;
+  s.guardEnabled = guardEnabled ? 1 : 0;
   s.autoCalReferenceDb = autoCalReferenceDb;
   s.autoCalOutputTrimDb = autoCalOutputTrimDb;
   s.autoCalHeadroomDb = autoCalHeadroomDb;
+  s.guardTrimOffsetDb = guardTrimOffsetDb;
+  s.guardHeadroomOffsetDb = guardHeadroomOffsetDb;
+  s.guardBoostCapReductionDb = guardBoostCapReductionDb;
+  s.guardLastPersistMs = millis();
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
+  guardTrimOffsetPersistedDb = guardTrimOffsetDb;
+  guardHeadroomOffsetPersistedDb = guardHeadroomOffsetDb;
+  guardBoostCapReductionPersistedDb = guardBoostCapReductionDb;
+  guardDirty = false;
+  guardLastPersistMs = s.guardLastPersistMs;
 }
 
 void loadSettingsOrFactory() {
@@ -899,11 +957,29 @@ void loadSettingsOrFactory() {
     autoCalReferenceDb = clampf(s.autoCalReferenceDb, -30.0f, -10.0f);
     autoCalOutputTrimDb = clampf(s.autoCalOutputTrimDb, -6.0f, 0.0f);
     autoCalHeadroomDb = clampf(s.autoCalHeadroomDb, 0.5f, 4.0f);
+    guardEnabled = s.guardEnabled != 0;
+    guardTrimOffsetDb = clampf(s.guardTrimOffsetDb, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+    guardHeadroomOffsetDb = clampf(s.guardHeadroomOffsetDb, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    guardBoostCapReductionDb = clampf(s.guardBoostCapReductionDb, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
+    guardTrimOffsetPersistedDb = guardTrimOffsetDb;
+    guardHeadroomOffsetPersistedDb = guardHeadroomOffsetDb;
+    guardBoostCapReductionPersistedDb = guardBoostCapReductionDb;
+    guardLastPersistMs = s.guardLastPersistMs;
+    guardDirty = false;
     applyDecoderPreset(currentPreset);
   } else {
     ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
     currentPreset = PRESET_UNIVERSAL;
     autoCalValid = false;
+    guardEnabled = true;
+    guardTrimOffsetDb = 0.0f;
+    guardHeadroomOffsetDb = 0.0f;
+    guardBoostCapReductionDb = 0.0f;
+    guardTrimOffsetPersistedDb = 0.0f;
+    guardHeadroomOffsetPersistedDb = 0.0f;
+    guardBoostCapReductionPersistedDb = 0.0f;
+    guardDirty = false;
+    guardLastPersistMs = 0;
     applyDecoderPreset(PRESET_UNIVERSAL);
   }
 }
@@ -915,15 +991,29 @@ void factoryResetSettings() {
   s.mode = static_cast<uint8_t>(AudioEffectOCXType2CodecStereo::MODE_DECODE);
   s.presetId = static_cast<uint8_t>(PRESET_UNIVERSAL);
   s.autoCalValid = 0;
+  s.guardEnabled = 1;
   s.autoCalReferenceDb = OCXProfile::kReferenceDb;
   s.autoCalOutputTrimDb = OCXProfile::kOutputTrimDb;
   s.autoCalHeadroomDb = OCXProfile::kHeadroomDb;
+  s.guardTrimOffsetDb = 0.0f;
+  s.guardHeadroomOffsetDb = 0.0f;
+  s.guardBoostCapReductionDb = 0.0f;
+  s.guardLastPersistMs = 0;
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
   ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
   autoCalValid = false;
   autoCalState = AUTO_IDLE;
   currentPreset = PRESET_UNIVERSAL;
+  guardEnabled = true;
+  guardTrimOffsetDb = 0.0f;
+  guardHeadroomOffsetDb = 0.0f;
+  guardBoostCapReductionDb = 0.0f;
+  guardTrimOffsetPersistedDb = 0.0f;
+  guardHeadroomOffsetPersistedDb = 0.0f;
+  guardBoostCapReductionPersistedDb = 0.0f;
+  guardDirty = false;
+  guardLastPersistMs = 0;
   applyDecoderPreset(PRESET_UNIVERSAL);
 }
 
@@ -1018,9 +1108,7 @@ void computeAutoCalResult() {
   const float lrMismatch = fabsf(autoPeakL - autoPeakR) / fmaxf(fmaxf(autoPeakL, autoPeakR), 1.0e-6f);
   const float stabilityPenalty = fabsf((peakAvg - autoLastPeak)) + fabsf(toneAvg - autoLastToneMetric);
   const float predClipUniversal = fmaxf(0.0f, peakAvg * dbToLin(OCXProfile::kOutputTrimDb) * dbToLin(-OCXProfile::kHeadroomDb) - 0.98f);
-  const float predClipW1200 = fmaxf(0.0f, peakAvg * dbToLin(OCXProfile::kW1200OutputTrimDb) * dbToLin(-OCXProfile::kW1200HeadroomDb) - 0.98f);
   const float nearLimitUniversal = fmaxf(0.0f, peakAvg - 0.86f);
-  const float nearLimitW1200 = fmaxf(0.0f, peakAvg - 0.82f);
   const float scoreUniversal =
     predClipUniversal * 8.0f +
     nearLimitUniversal * 3.5f +
@@ -1030,22 +1118,13 @@ void computeAutoCalResult() {
     fabsf(peakAvg - 0.52f) * 1.5f +
     lrMismatch * 1.5f +
     stabilityPenalty * 1.1f;
-  const float scoreW1200 =
-    predClipW1200 * 8.0f +
-    nearLimitW1200 * 3.5f +
-    fmaxf(0.0f, 0.18f - rmsAvg) * 1.5f +
-    fabsf(rmsAvg - 0.24f) * 1.8f +
-    fabsf(peakAvg - 0.42f) * 1.5f +
-    lrMismatch * 1.5f +
-    stabilityPenalty * 1.1f;
-  const PresetId base = (scoreW1200 + 0.08f < scoreUniversal) ? PRESET_W1200 : PRESET_UNIVERSAL;
-  const float baseReference = (base == PRESET_W1200) ? OCXProfile::kW1200ReferenceDb : OCXProfile::kReferenceDb;
-  const float baseOutputTrim = (base == PRESET_W1200) ? OCXProfile::kW1200OutputTrimDb : OCXProfile::kOutputTrimDb;
-  const float baseHeadroom = (base == PRESET_W1200) ? OCXProfile::kW1200HeadroomDb : OCXProfile::kHeadroomDb;
+  const float baseReference = OCXProfile::kReferenceDb;
+  const float baseOutputTrim = OCXProfile::kOutputTrimDb;
+  const float baseHeadroom = OCXProfile::kHeadroomDb;
   autoCalReferenceDb = clampf(baseReference + clampf((0.28f - rmsAvg) * 8.0f, -2.0f, 2.0f), baseReference - 2.0f, baseReference + 2.0f);
-  autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.46f - peakAvg) * 6.0f, -1.5f, 1.5f), baseOutputTrim - 1.5f, baseOutputTrim + 1.5f);
-  autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.58f) * 4.0f, -1.0f, 1.0f), baseHeadroom - 1.0f, baseHeadroom + 1.0f);
-  autoCalScore = 100.0f - 100.0f * (fminf(scoreUniversal, scoreW1200) + fmaxf(0.0f, 0.70f - toneAvg));
+  autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.44f - peakAvg) * 3.0f, -0.75f, 0.5f), -2.5f, 0.0f);
+  autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.54f) * 2.0f, -0.25f, 0.75f), 1.0f, 3.5f);
+  autoCalScore = 100.0f - 100.0f * (scoreUniversal + fmaxf(0.0f, 0.70f - toneAvg));
   autoCalValid = true;
   currentPreset = PRESET_AUTO_CAL;
   applyDecoderPreset(PRESET_AUTO_CAL);
@@ -1247,6 +1326,106 @@ void updateAutoCal() {
   if (autoCalState == AUTO_COMPUTE) computeAutoCalResult();
 }
 
+void guardMarkChanged(unsigned long now, GuardState s, const char* reason) {
+  guardState = s;
+  guardReason = reason;
+  guardLastStateChangeMs = now;
+  guardDirty = true;
+  applyEffectiveDecoderSettings();
+}
+
+void maybePersistGuard(unsigned long now) {
+  if (!guardDirty) return;
+  if (now - guardLastStateChangeMs < 90000UL) return;
+  if (now - guardLastPersistMs < 180000UL) return;
+  const float dTrim = fabsf(guardTrimOffsetDb - guardTrimOffsetPersistedDb);
+  const float dHead = fabsf(guardHeadroomOffsetDb - guardHeadroomOffsetPersistedDb);
+  const float dBoost = fabsf(guardBoostCapReductionDb - guardBoostCapReductionPersistedDb);
+  if (fmaxf(dTrim, fmaxf(dHead, dBoost)) < 0.5f) return;
+  persistSettings();
+}
+
+void updatePlaybackGuard() {
+  const unsigned long now = millis();
+  if (guardLastTickMs == 0) guardLastTickMs = now;
+  if (now - guardLastTickMs < 1000UL) {
+    maybePersistGuard(now);
+    return;
+  }
+  guardLastTickMs = now;
+  const AudioEffectOCXType2CodecStereo::DiagSnapshot d = ocx.getSignalDiagnosticsSnapshot();
+  static uint32_t prevNearBoost = 0;
+  static uint32_t prevClampBoost = 0;
+  static uint32_t prevOutClip = 0;
+  const uint32_t outClipNow = ocx.getOutputClipCount();
+  const uint16_t outClipNew = (uint16_t)(outClipNow - prevOutClip);
+  prevOutClip = outClipNow;
+  const uint16_t nearBoostNew = (uint16_t)(d.nearBoostCount - prevNearBoost);
+  const uint16_t clampBoostNew = (uint16_t)(d.clampBoostHitCount - prevClampBoost);
+  prevNearBoost = d.nearBoostCount;
+  prevClampBoost = d.clampBoostHitCount;
+  const float outPeakMono = fmaxf(d.outputPeakL, d.outputPeakR);
+
+  guardClipBins[guardWindowPos] = outClipNew;
+  guardNearBins[guardWindowPos] = nearBoostNew;
+  guardBoostBins[guardWindowPos] = clampBoostNew;
+  guardWindowPos = (guardWindowPos + 1) % kGuardWindowSeconds;
+  if (guardWindowCount < kGuardWindowSeconds) ++guardWindowCount;
+
+  guardWindowClip1s = outClipNew;
+  guardWindowNearLimit10s = 0;
+  guardWindowBoostClamp10s = 0;
+  for (uint8_t i = 0; i < 10 && i < guardWindowCount; ++i) {
+    const int idx = (int)guardWindowPos - 1 - i;
+    const int pos = (idx < 0) ? idx + kGuardWindowSeconds : idx;
+    guardWindowNearLimit10s += guardNearBins[pos];
+    guardWindowBoostClamp10s += guardBoostBins[pos];
+  }
+
+  if (!guardEnabled) {
+    if (guardTrimOffsetDb != 0.0f || guardHeadroomOffsetDb != 0.0f || guardBoostCapReductionDb != 0.0f) {
+      guardTrimOffsetDb = 0.0f;
+      guardHeadroomOffsetDb = 0.0f;
+      guardBoostCapReductionDb = 0.0f;
+      guardMarkChanged(now, GUARD_IDLE, "disabled");
+    }
+    maybePersistGuard(now);
+    return;
+  }
+
+  const bool triggerA = outClipNew > 0 || outPeakMono >= 0.985f || guardWindowNearLimit10s >= 250;
+  const bool triggerB = guardWindowNearLimit10s >= 700 || guardWindowBoostClamp10s >= 300;
+  const bool stableForRelax = (now - guardLastBrakeMs) >= 30000UL && guardWindowClip1s == 0 && guardWindowNearLimit10s <= 80 && guardWindowBoostClamp10s <= 60;
+
+  if (triggerA) {
+    guardTrimOffsetDb = clampf(guardTrimOffsetDb - 0.5f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+    if (outClipNew > 0 || outPeakMono >= 0.995f) {
+      guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb + 0.5f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    }
+    guardLastBrakeMs = now;
+    guardMarkChanged(now, GUARD_BRAKE_A, outClipNew > 0 ? "out_clip" : "near_limit");
+  } else if (triggerB) {
+    guardTrimOffsetDb = clampf(guardTrimOffsetDb - 0.5f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+    guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb + 0.5f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    guardBoostCapReductionDb = clampf(guardBoostCapReductionDb - 0.5f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
+    guardMarkChanged(now, GUARD_PROTECT_B, "boost_near_limit");
+  } else if (stableForRelax && (guardTrimOffsetDb < 0.0f || guardHeadroomOffsetDb > 0.0f || guardBoostCapReductionDb < 0.0f)) {
+    guardTrimOffsetDb = clampf(guardTrimOffsetDb + 0.25f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+    guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb - 0.25f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    guardBoostCapReductionDb = clampf(guardBoostCapReductionDb + 0.25f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
+    guardMarkChanged(now, GUARD_RELAX_C, "stable_relax");
+  } else {
+    if (guardTrimOffsetDb == 0.0f && guardHeadroomOffsetDb == 0.0f && guardBoostCapReductionDb == 0.0f) {
+      guardState = GUARD_IDLE;
+      guardReason = "neutral";
+    } else {
+      guardState = GUARD_SETTLED;
+      guardReason = "holding";
+    }
+  }
+  maybePersistGuard(now);
+}
+
 void printHelp() {
   Serial.println();
   Serial.println(F("Commands:"));
@@ -1263,11 +1442,11 @@ void printHelp() {
   Serial.println(F("  M  : print codec mode"));
   Serial.println(F("  j  : print preset"));
   Serial.println(F("  u  : select preset UNIVERSAL"));
-  Serial.println(F("  2  : select preset W1200"));
   Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
   Serial.println(F("  J  : print AUTO_CAL state"));
   Serial.println(F("  K  : print AUTO_CAL raw telemetry/reject reasons"));
   Serial.println(F("  L  : print locked AUTO_CAL values"));
+  Serial.println(F("  H  : toggle PLAYBACK_GUARD_DYNAMIC"));
   Serial.println(F("  >  : set mode decode"));
   Serial.println(F("  <  : set mode encode"));
   Serial.println(F("  P  : persist mode/preset/AUTO_CAL settings"));
@@ -1342,6 +1521,18 @@ void printCompactTelemetryLine() {
   Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
   Serial.print(F(" auto=")); Serial.print(autoCalStateLabel(autoCalState));
   Serial.print(F(" autoValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F(" guardEnabled=")); Serial.print(guardEnabled ? F("YES") : F("NO"));
+  Serial.print(F(" guardState=")); Serial.print(guardStateLabel(guardState));
+  Serial.print(F(" guardReason=")); Serial.print(guardReason);
+  Serial.print(F(" guardTrimOffsetDb=")); Serial.print(guardTrimOffsetDb, 2);
+  Serial.print(F(" guardHeadroomOffsetDb=")); Serial.print(guardHeadroomOffsetDb, 2);
+  Serial.print(F(" guardBoostCapReductionDb=")); Serial.print(guardBoostCapReductionDb, 2);
+  Serial.print(F(" guardWindowClip1s=")); Serial.print(guardWindowClip1s);
+  Serial.print(F(" guardWindowNearLimit10s=")); Serial.print(guardWindowNearLimit10s);
+  Serial.print(F(" guardWindowBoostClamp10s=")); Serial.print(guardWindowBoostClamp10s);
+  Serial.print(F(" guardStableMs=")); Serial.print(millis() - guardLastStateChangeMs);
+  Serial.print(F(" guardDirty=")); Serial.print(guardDirty ? F("YES") : F("NO"));
+  Serial.print(F(" guardLastPersistMs=")); Serial.print(guardLastPersistMs);
   Serial.print(F(" gDb=")); Serial.print(ocx.getLastGainDb(), 2);
   Serial.print(F(" envDb=")); Serial.print(ocx.getLastEnvDb(), 1);
   Serial.print(F(" tone=")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
@@ -1449,19 +1640,25 @@ void printStatus() {
   Serial.print(F("Preset: ")); Serial.println(presetLabel(currentPreset));
   Serial.print(F("AUTO_CAL state: ")); Serial.println(autoCalStateLabel(autoCalState));
   Serial.print(F("AUTO_CAL values valid: ")); Serial.println(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F("PLAYBACK_GUARD_DYNAMIC: ")); Serial.println(guardEnabled ? F("ON") : F("OFF"));
+  Serial.print(F("Guard state/reason: ")); Serial.print(guardStateLabel(guardState)); Serial.print(F(" / ")); Serial.println(guardReason);
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.println(F("Bypass mode keeps output protection (headroom + soft clip), not a hard relay bypass."));
   Serial.print(F("Input trim: ")); Serial.print(ocx.getInputTrimDb(), 2); Serial.println(F(" dB"));
-  Serial.print(F("Output trim: ")); Serial.print(ocx.getOutputTrimDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Output trim (effective): ")); Serial.print(ocx.getOutputTrimDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Output trim (static base): ")); Serial.print(staticOutputTrimDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("Guard trim offset: ")); Serial.print(guardTrimOffsetDb, 2); Serial.println(F(" dB"));
   Serial.print(F("Strength: ")); Serial.println(ocx.getStrength(), 3);
-  Serial.print(F("Reference: ")); Serial.print(ocx.getReferenceDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Reference (static): ")); Serial.print(ocx.getReferenceDb(), 2); Serial.println(F(" dB"));
   Serial.println(F("Detector: stereo-linked peak (max of L/R sidechain power)."));
   Serial.print(F("Attack: ")); Serial.print(ocx.getAttackMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Release: ")); Serial.print(ocx.getReleaseMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Sidechain HP: ")); Serial.print(ocx.getSidechainHpHz(), 1); Serial.println(F(" Hz"));
   Serial.print(F("Sidechain shelf: ")); Serial.print(ocx.getSidechainShelfDb(), 1); Serial.print(F(" dB @ ")); Serial.print(ocx.getSidechainShelfHz(), 0); Serial.println(F(" Hz"));
   Serial.print(F("De-emphasis shelf: ")); Serial.print(ocx.getDeemphDb(), 2); Serial.print(F(" dB @ ")); Serial.print(ocx.getDeemphHz(), 0); Serial.println(F(" Hz"));
-  Serial.print(F("Headroom: ")); Serial.print(ocx.getHeadroomDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Headroom (effective): ")); Serial.print(ocx.getHeadroomDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Headroom (static base): ")); Serial.print(staticHeadroomDb, 2); Serial.println(F(" dB"));
+  Serial.print(F("Guard headroom offset: ")); Serial.print(guardHeadroomOffsetDb, 2); Serial.println(F(" dB"));
   Serial.print(F("DC block: ")); Serial.print(ocx.getDcBlockHz(), 1); Serial.println(F(" Hz"));
   Serial.print(F("Soft clip drive: ")); Serial.println(ocx.getSoftClipDrive(), 2);
   Serial.print(F("Tone: ")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
@@ -1493,7 +1690,11 @@ void printAutoCalStatus() {
 void printAutoCalLockedValues() {
   Serial.print(F("[AUTO_CAL_LOCKED] reference_db=")); Serial.print(autoCalReferenceDb, 2);
   Serial.print(F(" output_trim_db=")); Serial.print(autoCalOutputTrimDb, 2);
-  Serial.print(F(" headroom_db=")); Serial.println(autoCalHeadroomDb, 2);
+  Serial.print(F(" headroom_db=")); Serial.print(autoCalHeadroomDb, 2);
+  Serial.print(F(" guardEnabled=")); Serial.print(guardEnabled ? F("YES") : F("NO"));
+  Serial.print(F(" guardTrimOffsetDb=")); Serial.print(guardTrimOffsetDb, 2);
+  Serial.print(F(" guardHeadroomOffsetDb=")); Serial.print(guardHeadroomOffsetDb, 2);
+  Serial.print(F(" guardBoostCapReductionDb=")); Serial.println(guardBoostCapReductionDb, 2);
 }
 
 void handleSerial() {
@@ -1517,11 +1718,19 @@ void handleSerial() {
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
       case 'j': Serial.println(presetLabel(currentPreset)); break;
       case 'u': currentPreset = PRESET_UNIVERSAL; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
-      case '2': currentPreset = PRESET_W1200; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
       case 'l': beginAutoCal(); break;
       case 'J': printAutoCalStatus(); break;
       case 'K': printAutoCalRawTelemetry(); break;
       case 'L': printAutoCalLockedValues(); break;
+      case 'H':
+        guardEnabled = !guardEnabled;
+        if (!guardEnabled) {
+          guardTrimOffsetDb = 0.0f;
+          guardHeadroomOffsetDb = 0.0f;
+          guardBoostCapReductionDb = 0.0f;
+        }
+        applyEffectiveDecoderSettings();
+        break;
       case '>': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE); break;
       case '<': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_ENCODE); break;
       case 'P': persistSettings(); break;
@@ -1594,7 +1803,7 @@ void setup() {
   updateTone();
 
   Serial.println();
-  Serial.println(F("OCX Type 2 decoder firmware ready (preset system: UNIVERSAL/W1200/AUTO_CAL)."));
+  Serial.println(F("OCX Type 2 decoder firmware ready (preset system: UNIVERSAL/AUTO_CAL + PLAYBACK_GUARD_DYNAMIC)."));
   Serial.print(F("Runtime sample-rate (AUDIO_SAMPLE_RATE_EXACT): "));
   Serial.println((double)AUDIO_SAMPLE_RATE_EXACT, 4);
   Serial.println(F("Profile/sample-method baseline remains 44100 Hz nominal for simulator/harness comparability."));
@@ -1606,6 +1815,7 @@ void setup() {
 void loop() {
   handleSerial();
   updateAutoCal();
+  updatePlaybackGuard();
   const unsigned long now = millis();
   if (now - lastStatusMs > 2000) {
     lastStatusMs = now;

@@ -43,14 +43,13 @@ The following aspects can only be fully evaluated on real hardware:
 
 ## Profile principle
 
-There are now three selectable presets:
+There are now two selectable presets:
 
 - `universal` (default after factory reset; unchanged baseline)
-- `w1200` (fixed preset for the measured TEAC W-1200 setup point)
-- `auto_cal` (explicit 1-kHz measurement-tape calibration mode; no live music auto-regulation)
+- `auto_cal` (explicit 1-kHz measurement-tape calibration mode as static base)
 
-There is still no automatic program-dependent profile switching during music playback.
-Encoder presets are currently intentionally identical across `universal`, `w1200`, and `auto_cal` (decode-side field delta only at this stage).
+A dynamic playback guard layer is enabled by default and only makes playback more conservative (trim down/headroom up/boost cap down).
+Encoder presets are currently intentionally identical across `universal` and `auto_cal`.
 
 ## AUTO_CAL reality check (current main)
 
@@ -64,7 +63,7 @@ The current implementation was hardened for real-world cassette drift/jitter con
 - explicit reject reasons are surfaced (`reject_*`),
 - low-level LR mismatch is de-weighted until signal level is high enough to be meaningful,
 - measurement requires long-enough block accumulation (aligned to the documented 3×30 s tape structure) and prevents early lock after a few seconds,
-- candidate selection compares `universal` vs `w1200` with practical output-risk metrics (clip/headroom/plausibility), then locks `auto_cal`.
+- candidate selection now uses the universal baseline only and locks conservative static values for `auto_cal`.
 
 For field debug, serial command `K` prints raw AUTO_CAL telemetry including gate flags, fresh-data flags, latched values, freshness ages, block counters, state time, and reject reason.
 
