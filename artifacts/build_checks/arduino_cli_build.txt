@@ -1,0 +1,8 @@
+WARNING: /etc/udev/rules.d/00-teensy.rules file is missing!
+   To fix, run these commands in a terminal window:
+    cd /tmp ; wget https://www.pjrc.com/teensy/00-teensy.rules
+    sudo cp /tmp/00-teensy.rules /etc/udev/rules.d/
+Memory Usage on Teensy 4.1:
+  FLASH: code:80400, data:13496, headers:8500   free for files:8024068
+   RAM1: variables:17536, code:77032, padding:21272   free for local variables:408448
+   RAM2: variables:30080  free for malloc/new:494208

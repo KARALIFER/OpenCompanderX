@@ -719,10 +719,9 @@ static constexpr uint32_t kSettingsMagic = 0x4F435831u;
 static constexpr uint16_t kSettingsVersion = 1;
 static constexpr int kSettingsAddr = 0;
 
-uint32_t settingsChecksum(const PersistSettings &s) {
+uint32_t settingsChecksum(const uint8_t *p, size_t n) {
   uint32_t x = 2166136261u;
-  const uint8_t *p = reinterpret_cast<const uint8_t *>(&s);
-  for (size_t i = 0; i < sizeof(PersistSettings) - sizeof(uint32_t); ++i) {
+  for (size_t i = 0; i < n; ++i) {
     x ^= p[i];
     x *= 16777619u;
   }
@@ -734,14 +733,17 @@ void persistSettings() {
   s.magic = kSettingsMagic;
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(ocx.getMode());
-  s.checksum = settingsChecksum(s);
+  s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
 }
 
 void loadSettingsOrFactory() {
   PersistSettings s{};
   EEPROM.get(kSettingsAddr, s);
-  const bool ok = s.magic == kSettingsMagic && s.version == kSettingsVersion && s.checksum == settingsChecksum(s) && s.mode <= 1;
+  const bool ok = s.magic == kSettingsMagic &&
+                  s.version == kSettingsVersion &&
+                  s.checksum == settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t)) &&
+                  s.mode <= 1;
   if (ok) ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
   else ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
 }
@@ -751,7 +753,7 @@ void factoryResetSettings() {
   s.magic = kSettingsMagic;
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(AudioEffectOCXType2CodecStereo::MODE_DECODE);
-  s.checksum = settingsChecksum(s);
+  s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
   ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
 }

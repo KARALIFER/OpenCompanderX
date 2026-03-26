@@ -1,0 +1,30 @@
+Processing teensy41 (platform: teensy; board: teensy41; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/teensy/teensy41.html
+PLATFORM: Teensy (5.1.0) > Teensy 4.1
+HARDWARE: IMXRT1062 600MHz, 512KB RAM, 7.75MB Flash
+DEBUG: Current (jlink) External (jlink)
+PACKAGES: 
+ - framework-arduinoteensy @ 1.160.0 (1.60) 
+ - tool-teensy @ 1.159.0 (1.59) 
+ - toolchain-gccarmnoneeabi-teensy @ 1.110301.0 (11.3.1)
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 92 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- Audio @ 1.3
+|-- EEPROM @ 2.0
+Building in release mode
+Compiling .pio/build/teensy41/src/main.cpp.o
+Linking .pio/build/teensy41/firmware.elf
+Calculating size .pio/build/teensy41/firmware.elf
+Checking size .pio/build/teensy41/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+teensy_size: Memory Usage on Teensy 4.1:
+teensy_size:   FLASH: code:52484, data:12472, headers:8768   free for files:8052740
+teensy_size:    RAM1: variables:15008, code:49064, padding:16472   free for local variables:443744
+teensy_size:    RAM2: variables:30080  free for malloc/new:494208
+Building .pio/build/teensy41/firmware.hex
+========================= [SUCCESS] Took 6.07 seconds =========================
