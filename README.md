@@ -50,6 +50,20 @@ There are now three selectable presets:
 - `auto_cal` (explicit 1-kHz measurement-tape calibration mode; no live music auto-regulation)
 
 There is still no automatic program-dependent profile switching during music playback.
+Encoder presets are currently intentionally identical across `universal`, `w1200`, and `auto_cal` (decode-side field delta only at this stage).
+
+## AUTO_CAL reality check (current main)
+
+`AUTO_CAL` is still a **measurement-cassette workflow**, not an always-on music auto mode.  
+The current implementation was hardened for real-world cassette drift/jitter conditions:
+
+- tone detection now uses a narrow tolerance band around 1 kHz (not only one exact bin),
+- both channels are evaluated (tone + peak + RMS proxy),
+- explicit reject reasons are surfaced (`reject_*`),
+- measurement requires long-enough block accumulation (aligned to the documented 3×30 s tape structure) and prevents early lock after a few seconds,
+- candidate selection compares `universal` vs `w1200` with practical output-risk metrics (clip/headroom/plausibility), then locks `auto_cal`.
+
+For field debug, serial command `K` prints raw AUTO_CAL telemetry including gate flags, fresh-data flags, block counters, state time, and reject reason.
 
 Universal baseline (`ocx_type2_universal_v3_codec`) remains:
 

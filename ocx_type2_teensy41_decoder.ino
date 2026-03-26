@@ -695,8 +695,14 @@ void AudioEffectOCXType2CodecStereo::update(void) {
 AudioInputI2S                    i2sIn;
 AudioEffectOCXType2CodecStereo  ocx;
 AudioSynthWaveformSine           calTone;
-AudioAnalyzeToneDetect           toneDetectL;
+AudioAnalyzeToneDetect           toneDetectLLo;
+AudioAnalyzeToneDetect           toneDetectLCenter;
+AudioAnalyzeToneDetect           toneDetectLHi;
+AudioAnalyzeToneDetect           toneDetectRLo;
+AudioAnalyzeToneDetect           toneDetectRCenter;
+AudioAnalyzeToneDetect           toneDetectRHi;
 AudioAnalyzePeak                 peakL;
+AudioAnalyzePeak                 peakR;
 AudioMixer4                      mixL;
 AudioMixer4                      mixR;
 AudioOutputI2S                   i2sOut;
@@ -710,8 +716,14 @@ AudioConnection patchCord5(calTone, 0, mixL, 1);
 AudioConnection patchCord6(calTone, 0, mixR, 1);
 AudioConnection patchCord7(mixL, 0, i2sOut, 0);
 AudioConnection patchCord8(mixR, 0, i2sOut, 1);
-AudioConnection patchCord9(i2sIn, 0, toneDetectL, 0);
-AudioConnection patchCord10(i2sIn, 0, peakL, 0);
+AudioConnection patchCord9(i2sIn, 0, toneDetectLLo, 0);
+AudioConnection patchCord10(i2sIn, 0, toneDetectLCenter, 0);
+AudioConnection patchCord11(i2sIn, 0, toneDetectLHi, 0);
+AudioConnection patchCord12(i2sIn, 1, toneDetectRLo, 0);
+AudioConnection patchCord13(i2sIn, 1, toneDetectRCenter, 0);
+AudioConnection patchCord14(i2sIn, 1, toneDetectRHi, 0);
+AudioConnection patchCord15(i2sIn, 0, peakL, 0);
+AudioConnection patchCord16(i2sIn, 1, peakR, 0);
 
 bool  calToneEnabled = false;
 float calToneDb = OCXProfile::kToneDb;
@@ -734,6 +746,31 @@ float autoPeakAccum = 0.0f;
 float autoRmsAccum = 0.0f;
 float autoToneAccum = 0.0f;
 float autoLastPeak = 0.0f;
+float autoToneMetricL = 0.0f;
+float autoToneMetricR = 0.0f;
+float autoPeakL = 0.0f;
+float autoPeakR = 0.0f;
+float autoRmsProxyL = 0.0f;
+float autoRmsProxyR = 0.0f;
+float autoLastPeakL = 0.0f;
+float autoLastPeakR = 0.0f;
+float autoLastToneMetric = 0.0f;
+uint16_t autoToneBlocks = 0;
+uint8_t autoToneSegments = 0;
+uint16_t autoCurrentSegmentBlocks = 0;
+uint16_t autoCurrentSegmentValidBlocks = 0;
+uint16_t autoSilenceBlocks = 0;
+uint16_t autoConsecutiveToneReady = 0;
+unsigned long autoLastPeriodicMs = 0;
+bool autoFreshToneL = false;
+bool autoFreshToneR = false;
+bool autoFreshPeakL = false;
+bool autoFreshPeakR = false;
+bool autoLevelOk = false;
+bool autoTonalOk = false;
+bool autoStabilityOk = false;
+bool autoLrOk = false;
+const char* autoRejectReason = "none";
 
 struct PersistSettings {
   uint32_t magic;
@@ -899,12 +936,37 @@ void beginAutoCal() {
   autoCalState = AUTO_WAIT_FOR_TONE;
   autoStateEnterMs = millis();
   lastAutoMeasureMs = 0;
+  autoLastPeriodicMs = 0;
   autoBlocksSeen = 0;
   autoBlocksValid = 0;
+  autoToneBlocks = 0;
+  autoToneSegments = 0;
+  autoCurrentSegmentBlocks = 0;
+  autoCurrentSegmentValidBlocks = 0;
+  autoSilenceBlocks = 0;
+  autoConsecutiveToneReady = 0;
   autoPeakAccum = 0.0f;
   autoRmsAccum = 0.0f;
   autoToneAccum = 0.0f;
   autoLastPeak = 0.0f;
+  autoLastPeakL = 0.0f;
+  autoLastPeakR = 0.0f;
+  autoLastToneMetric = 0.0f;
+  autoToneMetricL = 0.0f;
+  autoToneMetricR = 0.0f;
+  autoPeakL = 0.0f;
+  autoPeakR = 0.0f;
+  autoRmsProxyL = 0.0f;
+  autoRmsProxyR = 0.0f;
+  autoFreshToneL = false;
+  autoFreshToneR = false;
+  autoFreshPeakL = false;
+  autoFreshPeakR = false;
+  autoLevelOk = false;
+  autoTonalOk = false;
+  autoStabilityOk = false;
+  autoLrOk = false;
+  autoRejectReason = "none";
   autoCalScore = 0.0f;
 }
 
@@ -912,41 +974,158 @@ void computeAutoCalResult() {
   const float peakAvg = autoPeakAccum / fmaxf((float)autoBlocksValid, 1.0f);
   const float rmsAvg = autoRmsAccum / fmaxf((float)autoBlocksValid, 1.0f);
   const float toneAvg = autoToneAccum / fmaxf((float)autoBlocksValid, 1.0f);
-  const float scoreUniversal = fabsf(peakAvg - 0.52f) + fabsf(rmsAvg - 0.30f);
-  const float scoreW1200 = fabsf(peakAvg - 0.42f) + fabsf(rmsAvg - 0.24f);
-  const PresetId base = (scoreW1200 + 0.02f < scoreUniversal) ? PRESET_W1200 : PRESET_UNIVERSAL;
+  const float lrMismatch = fabsf(autoPeakL - autoPeakR) / fmaxf(fmaxf(autoPeakL, autoPeakR), 1.0e-6f);
+  const float stabilityPenalty = fabsf((peakAvg - autoLastPeak)) + fabsf(toneAvg - autoLastToneMetric);
+  const float predClipUniversal = fmaxf(0.0f, peakAvg * dbToLin(OCXProfile::kOutputTrimDb) * dbToLin(-OCXProfile::kHeadroomDb) - 0.98f);
+  const float predClipW1200 = fmaxf(0.0f, peakAvg * dbToLin(OCXProfile::kW1200OutputTrimDb) * dbToLin(-OCXProfile::kW1200HeadroomDb) - 0.98f);
+  const float nearLimitUniversal = fmaxf(0.0f, peakAvg - 0.86f);
+  const float nearLimitW1200 = fmaxf(0.0f, peakAvg - 0.82f);
+  const float scoreUniversal =
+    predClipUniversal * 8.0f +
+    nearLimitUniversal * 3.5f +
+    fmaxf(0.0f, peakAvg - 0.62f) * 4.0f +
+    fmaxf(0.0f, rmsAvg - 0.32f) * 3.0f +
+    fabsf(rmsAvg - 0.30f) * 1.8f +
+    fabsf(peakAvg - 0.52f) * 1.5f +
+    lrMismatch * 1.5f +
+    stabilityPenalty * 1.1f;
+  const float scoreW1200 =
+    predClipW1200 * 8.0f +
+    nearLimitW1200 * 3.5f +
+    fmaxf(0.0f, 0.18f - rmsAvg) * 1.5f +
+    fabsf(rmsAvg - 0.24f) * 1.8f +
+    fabsf(peakAvg - 0.42f) * 1.5f +
+    lrMismatch * 1.5f +
+    stabilityPenalty * 1.1f;
+  const PresetId base = (scoreW1200 + 0.08f < scoreUniversal) ? PRESET_W1200 : PRESET_UNIVERSAL;
   const float baseReference = (base == PRESET_W1200) ? OCXProfile::kW1200ReferenceDb : OCXProfile::kReferenceDb;
   const float baseOutputTrim = (base == PRESET_W1200) ? OCXProfile::kW1200OutputTrimDb : OCXProfile::kOutputTrimDb;
   const float baseHeadroom = (base == PRESET_W1200) ? OCXProfile::kW1200HeadroomDb : OCXProfile::kHeadroomDb;
   autoCalReferenceDb = clampf(baseReference + clampf((0.28f - rmsAvg) * 8.0f, -2.0f, 2.0f), baseReference - 2.0f, baseReference + 2.0f);
   autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.46f - peakAvg) * 6.0f, -1.5f, 1.5f), baseOutputTrim - 1.5f, baseOutputTrim + 1.5f);
   autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.58f) * 4.0f, -1.0f, 1.0f), baseHeadroom - 1.0f, baseHeadroom + 1.0f);
-  autoCalScore = 100.0f - 100.0f * (fabsf(peakAvg - 0.5f) + fabsf(rmsAvg - 0.28f) + fmaxf(0.0f, 0.6f - toneAvg));
+  autoCalScore = 100.0f - 100.0f * (fminf(scoreUniversal, scoreW1200) + fmaxf(0.0f, 0.70f - toneAvg));
   autoCalValid = true;
   currentPreset = PRESET_AUTO_CAL;
   applyDecoderPreset(PRESET_AUTO_CAL);
   autoCalState = AUTO_LOCKED;
   autoStateEnterMs = millis();
+  autoRejectReason = "none";
+}
+
+float combinedToneMetricFromBins(float lo, float mid, float hi) {
+  return clampf(fmaxf(mid, 0.65f * fmaxf(lo, hi) + 0.35f * mid), 0.0f, 1.5f);
+}
+
+void captureAutoCalInputs() {
+  float loL = autoToneMetricL;
+  float midL = autoToneMetricL;
+  float hiL = autoToneMetricL;
+  float loR = autoToneMetricR;
+  float midR = autoToneMetricR;
+  float hiR = autoToneMetricR;
+
+  autoFreshToneL = false;
+  autoFreshToneR = false;
+  autoFreshPeakL = false;
+  autoFreshPeakR = false;
+
+  if (toneDetectLLo.available()) { loL = toneDetectLLo.read(); autoFreshToneL = true; }
+  if (toneDetectLCenter.available()) { midL = toneDetectLCenter.read(); autoFreshToneL = true; }
+  if (toneDetectLHi.available()) { hiL = toneDetectLHi.read(); autoFreshToneL = true; }
+  if (toneDetectRLo.available()) { loR = toneDetectRLo.read(); autoFreshToneR = true; }
+  if (toneDetectRCenter.available()) { midR = toneDetectRCenter.read(); autoFreshToneR = true; }
+  if (toneDetectRHi.available()) { hiR = toneDetectRHi.read(); autoFreshToneR = true; }
+  if (peakL.available()) { autoPeakL = peakL.read(); autoFreshPeakL = true; }
+  if (peakR.available()) { autoPeakR = peakR.read(); autoFreshPeakR = true; }
+
+  autoToneMetricL = combinedToneMetricFromBins(loL, midL, hiL);
+  autoToneMetricR = combinedToneMetricFromBins(loR, midR, hiR);
+  autoRmsProxyL = autoPeakL * 0.707f;
+  autoRmsProxyR = autoPeakR * 0.707f;
+}
+
+void updateAutoCalGateFlags() {
+  const float toneMetric = fmaxf(autoToneMetricL, autoToneMetricR);
+  const float peakMono = fmaxf(autoPeakL, autoPeakR);
+  const float lrPeakMismatch = fabsf(autoPeakL - autoPeakR) / fmaxf(peakMono, 1.0e-6f);
+  const float lrToneMismatch = fabsf(autoToneMetricL - autoToneMetricR) / fmaxf(toneMetric, 1.0e-6f);
+  autoLevelOk = peakMono > 0.030f && peakMono < 0.95f;
+  autoTonalOk = toneMetric > 0.46f;
+  autoStabilityOk = fabsf(autoPeakL - autoLastPeakL) < 0.12f && fabsf(autoPeakR - autoLastPeakR) < 0.12f;
+  autoLrOk = lrPeakMismatch < 0.55f && lrToneMismatch < 0.70f;
+  autoLastPeakL = autoPeakL;
+  autoLastPeakR = autoPeakR;
+  autoLastPeak = peakMono;
+  autoLastToneMetric = toneMetric;
+}
+
+void setAutoRejectReason(const char* reason) {
+  autoRejectReason = reason;
+}
+
+void printAutoCalRawTelemetry() {
+  Serial.print(F("[AUTO_RAW] state=")); Serial.print(autoCalStateLabel(autoCalState));
+  Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
+  Serial.print(F(" autoCalValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F(" toneL=")); Serial.print(autoToneMetricL, 3);
+  Serial.print(F(" toneR=")); Serial.print(autoToneMetricR, 3);
+  Serial.print(F(" peakL=")); Serial.print(autoPeakL, 4);
+  Serial.print(F(" peakR=")); Serial.print(autoPeakR, 4);
+  Serial.print(F(" rmsL=")); Serial.print(autoRmsProxyL, 4);
+  Serial.print(F(" rmsR=")); Serial.print(autoRmsProxyR, 4);
+  Serial.print(F(" levelOk=")); Serial.print(autoLevelOk ? F("YES") : F("NO"));
+  Serial.print(F(" tonalOk=")); Serial.print(autoTonalOk ? F("YES") : F("NO"));
+  Serial.print(F(" stabilityOk=")); Serial.print(autoStabilityOk ? F("YES") : F("NO"));
+  Serial.print(F(" lrOk=")); Serial.print(autoLrOk ? F("YES") : F("NO"));
+  Serial.print(F(" freshToneL=")); Serial.print(autoFreshToneL ? F("YES") : F("NO"));
+  Serial.print(F(" freshToneR=")); Serial.print(autoFreshToneR ? F("YES") : F("NO"));
+  Serial.print(F(" freshPeakL=")); Serial.print(autoFreshPeakL ? F("YES") : F("NO"));
+  Serial.print(F(" freshPeakR=")); Serial.print(autoFreshPeakR ? F("YES") : F("NO"));
+  Serial.print(F(" blocksSeen=")); Serial.print(autoBlocksSeen);
+  Serial.print(F(" blocksValid=")); Serial.print(autoBlocksValid);
+  Serial.print(F(" toneBlocks=")); Serial.print(autoToneBlocks);
+  Serial.print(F(" toneSeg=")); Serial.print(autoToneSegments);
+  Serial.print(F(" stateMs=")); Serial.print(millis() - autoStateEnterMs);
+  Serial.print(F(" reject=")); Serial.println(autoRejectReason);
+}
+
+void maybePrintAutoCalPeriodic(unsigned long now) {
+  if (autoCalState != AUTO_WAIT_FOR_TONE && autoCalState != AUTO_MEASURE) return;
+  if (now - autoLastPeriodicMs < 1500UL) return;
+  autoLastPeriodicMs = now;
+  printAutoCalRawTelemetry();
 }
 
 void updateAutoCal() {
   if (autoCalState == AUTO_IDLE || autoCalState == AUTO_LOCKED || autoCalState == AUTO_FAILED) return;
   const unsigned long now = millis();
-  const float toneStrength = toneDetectL.available() ? toneDetectL.read() : 0.0f;
-  const float peak = peakL.available() ? peakL.read() : 0.0f;
-  const float rmsProxy = peak * 0.707f;
-  const bool levelOk = peak > 0.05f && peak < 0.92f;
-  const bool stabilityOk = fabsf(peak - autoLastPeak) < 0.08f;
-  const bool tonalOk = toneStrength > 0.75f;
-  autoLastPeak = peak;
+  captureAutoCalInputs();
+  updateAutoCalGateFlags();
+  maybePrintAutoCalPeriodic(now);
+  const bool freshOk = autoFreshToneL && autoFreshToneR && autoFreshPeakL && autoFreshPeakR;
+  if (!freshOk) setAutoRejectReason("reject_no_fresh_data");
+  const bool gateOk = freshOk && autoTonalOk && autoLevelOk && autoStabilityOk && autoLrOk;
+  if (!autoLevelOk && autoLastPeak <= 0.030f) setAutoRejectReason("reject_peak_too_low");
+  if (!autoLevelOk && autoLastPeak >= 0.95f) setAutoRejectReason("reject_peak_too_high");
+  if (!autoTonalOk) setAutoRejectReason("reject_tone_too_weak");
+  if (!autoStabilityOk) setAutoRejectReason("reject_unstable");
+  if (!autoLrOk) setAutoRejectReason("reject_lr_mismatch");
 
   if (autoCalState == AUTO_WAIT_FOR_TONE) {
-    if (tonalOk && levelOk) {
+    if (gateOk) {
+      ++autoConsecutiveToneReady;
+    } else {
+      autoConsecutiveToneReady = 0;
+    }
+    if (autoConsecutiveToneReady >= 5) {
       autoCalState = AUTO_MEASURE;
       autoStateEnterMs = now;
       lastAutoMeasureMs = now;
-    } else if (now - autoStateEnterMs > 45000UL) {
+      autoRejectReason = "none";
+    } else if (now - autoStateEnterMs > 75000UL) {
       autoCalState = AUTO_FAILED;
+      setAutoRejectReason("reject_tone_too_weak");
     }
     return;
   }
@@ -955,17 +1134,32 @@ void updateAutoCal() {
     if (now - lastAutoMeasureMs >= 150UL) {
       lastAutoMeasureMs = now;
       ++autoBlocksSeen;
-      if (tonalOk && levelOk && stabilityOk) {
+      if (gateOk) {
         ++autoBlocksValid;
-        autoPeakAccum += peak;
-        autoRmsAccum += rmsProxy;
-        autoToneAccum += toneStrength;
+        ++autoToneBlocks;
+        ++autoCurrentSegmentValidBlocks;
+        ++autoCurrentSegmentBlocks;
+        autoSilenceBlocks = 0;
+        autoPeakAccum += 0.5f * (autoPeakL + autoPeakR);
+        autoRmsAccum += 0.5f * (autoRmsProxyL + autoRmsProxyR);
+        autoToneAccum += fmaxf(autoToneMetricL, autoToneMetricR);
+      } else {
+        ++autoSilenceBlocks;
+        if (autoCurrentSegmentBlocks > 0 && autoSilenceBlocks >= 4) {
+          if (autoCurrentSegmentValidBlocks >= 120) ++autoToneSegments;
+          autoCurrentSegmentBlocks = 0;
+          autoCurrentSegmentValidBlocks = 0;
+        }
       }
     }
-    if (autoBlocksValid >= 20 && autoBlocksSeen >= 24) {
+    const bool enoughSegments = (autoToneSegments >= 2) || (autoToneSegments >= 1 && autoCurrentSegmentValidBlocks >= 150);
+    const bool enoughDuration = (now - autoStateEnterMs) >= 70000UL;
+    if (enoughSegments && autoToneBlocks >= 320 && autoBlocksSeen >= 360 && enoughDuration) {
       autoCalState = AUTO_COMPUTE;
-    } else if (autoBlocksSeen > 120) {
+      autoRejectReason = "none";
+    } else if (now - autoStateEnterMs > 130000UL) {
       autoCalState = AUTO_FAILED;
+      setAutoRejectReason("reject_unstable");
     }
   }
 
@@ -991,6 +1185,7 @@ void printHelp() {
   Serial.println(F("  2  : select preset W1200"));
   Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
   Serial.println(F("  J  : print AUTO_CAL state"));
+  Serial.println(F("  K  : print AUTO_CAL raw telemetry/reject reasons"));
   Serial.println(F("  L  : print locked AUTO_CAL values"));
   Serial.println(F("  >  : set mode decode"));
   Serial.println(F("  <  : set mode encode"));
@@ -1207,7 +1402,10 @@ void printAutoCalStatus() {
   Serial.print(F("[AUTO_CAL] state=")); Serial.print(autoCalStateLabel(autoCalState));
   Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
   Serial.print(F(" valid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F(" reject=")); Serial.print(autoRejectReason);
   Serial.print(F(" blocks=")); Serial.print(autoBlocksValid); Serial.print(F("/")); Serial.print(autoBlocksSeen);
+  Serial.print(F(" toneBlocks=")); Serial.print(autoToneBlocks);
+  Serial.print(F(" toneSeg=")); Serial.print(autoToneSegments);
   Serial.print(F(" score=")); Serial.println(autoCalScore, 2);
 }
 
@@ -1241,6 +1439,7 @@ void handleSerial() {
       case '2': currentPreset = PRESET_W1200; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
       case 'l': beginAutoCal(); break;
       case 'J': printAutoCalStatus(); break;
+      case 'K': printAutoCalRawTelemetry(); break;
       case 'L': printAutoCalLockedValues(); break;
       case '>': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE); break;
       case '<': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_ENCODE); break;
@@ -1295,7 +1494,12 @@ void setup() {
   mixL.gain(1, 0.0f);
   mixR.gain(1, 0.0f);
   calTone.amplitude(0.0f);
-  toneDetectL.frequency(1000.0f, 20);
+  toneDetectLLo.frequency(960.0f, 20);
+  toneDetectLCenter.frequency(1000.0f, 20);
+  toneDetectLHi.frequency(1040.0f, 20);
+  toneDetectRLo.frequency(960.0f, 20);
+  toneDetectRCenter.frequency(1000.0f, 20);
+  toneDetectRHi.frequency(1040.0f, 20);
 
   codec.enable();
   codec.inputSelect(AUDIO_INPUT_LINEIN);

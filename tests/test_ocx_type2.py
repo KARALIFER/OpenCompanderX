@@ -12,6 +12,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ocx_type2_harness as harness_module
+from ocx_type2_auto_cal import (
+    BlockTracker,
+    ToneTelemetry,
+    decide_candidate,
+    evaluate_tone_acceptance,
+    has_enough_measurement,
+    update_block_tracker,
+)
 from ocx_type2_harness import build_case_specs, compare, evaluate_scores, run_detector_study, run_tuning
 from ocx_type2_wav_sim import Decoder, DecoderParams, Encoder, EncoderParams, PROFILE_PATH, ensure_stereo
 
@@ -269,3 +277,100 @@ def test_evaluate_scores_underdecode_penalty_still_blocks_trivial_similarity():
     good = dict(under)
     good.update({"decode_action_ratio": 0.12, "gain_curve_mean_db": -1.2, "correlation": 0.94, "output_rms": 0.10})
     assert float(evaluate_scores([good])["score_total"]) > float(evaluate_scores([under])["score_total"])
+
+
+def test_auto_cal_wait_for_tone_reject_path_low_peak():
+    acc = evaluate_tone_acceptance(
+        ToneTelemetry(tone_left=0.9, tone_right=0.85, peak_left=0.01, peak_right=0.01),
+        prev_peak_left=0.01,
+        prev_peak_right=0.01,
+    )
+    assert acc.accepted is False
+    assert acc.reject_reason == "reject_peak_too_low"
+
+
+def test_auto_cal_wait_for_tone_success_path():
+    acc = evaluate_tone_acceptance(
+        ToneTelemetry(tone_left=0.82, tone_right=0.75, peak_left=0.24, peak_right=0.21),
+        prev_peak_left=0.26,
+        prev_peak_right=0.20,
+    )
+    assert acc.accepted is True
+    assert acc.reject_reason == "none"
+
+
+def test_auto_cal_block_accumulation_and_short_silence_tolerance():
+    tracker = BlockTracker()
+    for _ in range(140):
+        tracker = update_block_tracker(tracker, accepted=True)
+    for _ in range(3):
+        tracker = update_block_tracker(tracker, accepted=False)
+    for _ in range(140):
+        tracker = update_block_tracker(tracker, accepted=True)
+    assert tracker.tone_segments == 0
+    assert tracker.current_segment_valid_blocks >= 280
+
+
+def test_auto_cal_segment_finalize_after_silence_gap():
+    tracker = BlockTracker()
+    for _ in range(130):
+        tracker = update_block_tracker(tracker, accepted=True)
+    for _ in range(4):
+        tracker = update_block_tracker(tracker, accepted=False)
+    assert tracker.tone_segments == 1
+    assert tracker.current_segment_valid_blocks == 0
+
+
+def test_auto_cal_too_early_lock_prevented():
+    tracker = BlockTracker()
+    for _ in range(250):
+        tracker = update_block_tracker(tracker, accepted=True)
+    assert has_enough_measurement(tracker, elapsed_ms=45_000) is False
+
+
+def test_auto_cal_reject_reasons_cover_no_fresh_data_and_lr_mismatch():
+    no_fresh = evaluate_tone_acceptance(
+        ToneTelemetry(0.8, 0.8, 0.2, 0.2, fresh_peak_right=False),
+        prev_peak_left=0.2,
+        prev_peak_right=0.2,
+    )
+    lr_bad = evaluate_tone_acceptance(
+        ToneTelemetry(0.9, 0.2, 0.5, 0.05),
+        prev_peak_left=0.52,
+        prev_peak_right=0.06,
+    )
+    assert no_fresh.reject_reason == "reject_no_fresh_data"
+    assert lr_bad.reject_reason == "reject_lr_mismatch"
+
+
+def test_auto_cal_candidate_selection_universal_vs_w1200():
+    chosen_hot, _, _ = decide_candidate(peak_avg=0.78, rms_avg=0.37, lr_mismatch=0.10, stability_penalty=0.05)
+    chosen_cool, _, _ = decide_candidate(peak_avg=0.50, rms_avg=0.30, lr_mismatch=0.02, stability_penalty=0.02)
+    assert chosen_hot == "w1200"
+    assert chosen_cool == "universal"
+
+
+def test_auto_cal_persistence_remains_unchanged_on_failed_attempt():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    begin_idx = ino.index("void beginAutoCal()")
+    begin_body = ino[begin_idx : ino.index("void computeAutoCalResult()", begin_idx)]
+    assert "autoCalValid = false" not in begin_body
+    assert "currentPreset = PRESET_AUTO_CAL" not in begin_body
+
+
+def test_auto_cal_invalid_stored_profile_falls_back_to_universal():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    assert "currentPreset = PRESET_UNIVERSAL;" in ino
+    assert "autoCalValid = false;" in ino
+
+
+def test_auto_cal_stereo_telemetry_command_and_detectors_present():
+    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    for token in ["toneDetectRLo", "toneDetectRCenter", "toneDetectRHi", "peakR", "case 'K': printAutoCalRawTelemetry();"]:
+        assert token in ino
+
+
+def test_encoder_presets_are_currently_intentionally_identical():
+    profile = json.loads(PROFILE_PATH.read_text())
+    enc = profile["presets"]["encoder"]
+    assert enc["universal"] == enc["w1200"] == enc["auto_cal"]
