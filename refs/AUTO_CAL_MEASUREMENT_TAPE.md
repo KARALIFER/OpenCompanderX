@@ -34,6 +34,19 @@ State-Machine:
 - `AUTO_LOCKED` oder `AUTO_FAILED`
 
 Erst bei stabiler 1-kHz-Erkennung werden valide Blöcke gesammelt.
+Die Erkennung ist absichtlich tolerant gegen reale Deck-Abweichungen (Wow/Flutter/leichte Speed-Offsets):
+
+- schmale Mehrbin-Prüfung um ~1 kHz (nicht nur exakt 1000.0 Hz),
+- Stereo-Auswertung (L+R) statt nur linker Kanal,
+- harte Reject-Gründe sichtbar, z. B. `reject_tone_too_weak`, `reject_unstable`, `reject_lr_mismatch`.
+
+Wichtig: `AUTO_CAL` lockt nicht mehr nach wenigen Sekunden.  
+Es werden längere Messfenster und mehrere valide Tonblöcke erwartet (3×30-s-Struktur mit kurzen Silences dazwischen toleriert).
+
+## 6b) Roh-Telemetrie
+- `J`: kompakter Status
+- `K`: Rohtelemetrie (`toneL/toneR`, `peakL/peakR`, RMS-Proxies, Gate-Flags, Fresh-Data-Flags, Blockzähler, Zeit im State, Reject-Reason)
+- `L`: gelockte AUTO_CAL-Werte
 
 ## 7) Speicherung
 - Nach erfolgreichem Lock (`AUTO_LOCKED`) optional mit `P` in EEPROM speichern.

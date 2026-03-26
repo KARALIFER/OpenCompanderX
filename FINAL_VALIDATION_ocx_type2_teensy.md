@@ -205,6 +205,7 @@ Finale Auswahl bleibt an 44.1-kHz-Ergebnissen gebunden; Low-Rate-Sweeps dienen n
 
 - Keine Bitexact-/Originalgleich-/Referenzgleich-Claims ohne harte Messkette.
 - Aktueller Stand ist als robuste, Type-II-orientierte Decoder-Annäherung bewertet, aber nicht als vollständig standardgenau historisch verifiziert.
+- AUTO_CAL ist als praxisorientierter Feld-Workflow verbessert (Stereo + tolerant um 1 kHz + Reject-Gründe + längere Blockmessung), bleibt aber bis zur erneuten Messung auf echter Hardware weiterhin als **experimentell/feldzuvalidieren** markiert.
 - Cassette-vs-Disc-Trennung bleibt bewusst konservativ: keine unbelegte Übernahme disc-spezifischer LF-Kompensationen als Default.
 - Endgültige Bewertung bleibt hardware- und materialabhängig.
 - Black-Box-Demos ohne exakt dokumentierten Prozesspfad sind nur Hinweis, keine harte Kalibrierreferenz.
