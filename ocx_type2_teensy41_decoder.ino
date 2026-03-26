@@ -65,6 +65,9 @@ static constexpr float kToneDb = -9.8f;
 
 enum PresetId : uint8_t { PRESET_UNIVERSAL = 0, PRESET_AUTO_CAL = 1 };
 enum AutoCalState : uint8_t { AUTO_IDLE = 0, AUTO_WAIT_FOR_TONE = 1, AUTO_MEASURE = 2, AUTO_COMPUTE = 3, AUTO_LOCKED = 4, AUTO_FAILED = 5 };
+// Keep GuardState visible before Arduino auto-generated prototypes so
+// guardMarkChanged(...) signatures remain valid in Arduino-CLI builds.
+enum GuardState : uint8_t { GUARD_IDLE = 0, GUARD_BRAKE_A = 1, GUARD_PROTECT_B = 2, GUARD_RELAX_C = 3, GUARD_SETTLED = 4 };
 
 
 static inline float clampf(float x, float lo, float hi) {
@@ -756,7 +759,6 @@ uint8_t guardWindowCount = 0;
 uint16_t guardWindowClip1s = 0;
 uint16_t guardWindowNearLimit10s = 0;
 uint16_t guardWindowBoostClamp10s = 0;
-enum GuardState : uint8_t { GUARD_IDLE = 0, GUARD_BRAKE_A = 1, GUARD_PROTECT_B = 2, GUARD_RELAX_C = 3, GUARD_SETTLED = 4 };
 GuardState guardState = GUARD_IDLE;
 const char* guardReason = "boot";
 static constexpr float kGuardMinTrimOffsetDb = -3.0f;
@@ -1326,8 +1328,8 @@ void updateAutoCal() {
   if (autoCalState == AUTO_COMPUTE) computeAutoCalResult();
 }
 
-void guardMarkChanged(unsigned long now, GuardState s, const char* reason) {
-  guardState = s;
+void guardMarkChanged(unsigned long now, uint8_t s, const char* reason) {
+  guardState = static_cast<GuardState>(s);
   guardReason = reason;
   guardLastStateChangeMs = now;
   guardDirty = true;
