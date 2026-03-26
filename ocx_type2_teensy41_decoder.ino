@@ -731,6 +731,9 @@ float calToneHz = OCXProfile::kToneHz;
 enum ToneChannelMode : uint8_t { TONE_BOTH = 0, TONE_LEFT = 1, TONE_RIGHT = 2 };
 ToneChannelMode toneChannelMode = TONE_BOTH;
 unsigned long lastStatusMs = 0;
+uint32_t lastWarnedInputClipCount = 0;
+uint32_t lastWarnedOutputClipCount = 0;
+uint32_t lastWarnedAllocFailCount = 0;
 unsigned long autoStateEnterMs = 0;
 unsigned long lastAutoMeasureMs = 0;
 PresetId currentPreset = PRESET_UNIVERSAL;
@@ -822,6 +825,7 @@ bool autoStabilityOk = false;
 bool autoLrOk = false;
 const char* autoGateBlockReason = "none";
 const char* autoRejectReason = "none";
+bool autoLockSummaryPending = false;
 static constexpr unsigned long kAutoFreshWindowMs = 450UL;
 static constexpr unsigned long kAutoWarmupMs = 1200UL;
 
@@ -1101,6 +1105,7 @@ void beginAutoCal() {
   autoGateBlockReason = "none";
   autoRejectReason = "none";
   autoCalScore = 0.0f;
+  autoLockSummaryPending = false;
 }
 
 void computeAutoCalResult() {
@@ -1133,6 +1138,7 @@ void computeAutoCalResult() {
   autoCalState = AUTO_LOCKED;
   autoStateEnterMs = millis();
   autoRejectReason = "none";
+  autoLockSummaryPending = true;
 }
 
 float combinedToneMetricFromBins(float lo, float mid, float hi) {
@@ -1699,6 +1705,19 @@ void printAutoCalLockedValues() {
   Serial.print(F(" guardBoostCapReductionDb=")); Serial.println(guardBoostCapReductionDb, 2);
 }
 
+void resetWarningLatches() {
+  lastWarnedInputClipCount = ocx.getInputClipCount();
+  lastWarnedOutputClipCount = ocx.getOutputClipCount();
+  lastWarnedAllocFailCount = ocx.getAllocFailCount();
+}
+
+void maybePrintAutoLockSummary() {
+  if (!autoLockSummaryPending || autoCalState != AUTO_LOCKED) return;
+  printAutoCalStatus();
+  printAutoCalLockedValues();
+  autoLockSummaryPending = false;
+}
+
 void handleSerial() {
   while (Serial.available()) {
     const char c = Serial.read();
@@ -1708,13 +1727,13 @@ void handleSerial() {
       case 'm': printCompactTelemetryLine(); break;
       case 'n': printSignalDiagnosticsSnapshot(); break;
       case 'N': ocx.resetSignalDiagnostics(); break;
-      case 'x': ocx.clearClipFlags(); break;
+      case 'x': ocx.clearClipFlags(); resetWarningLatches(); break;
       case 'v': {
         const ClipDelta delta = ocx.consumeClipDelta();
         Serial.print(F("[CLIPΔ] inNew=")); Serial.print(delta.inputNew);
         Serial.print(F(" outNew=")); Serial.println(delta.outputNew);
       } break;
-      case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); ocx.resetSignalDiagnostics(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); break;
+      case 'X': ocx.clearClipFlags(); ocx.clearRuntimeCounters(); ocx.resetSignalDiagnostics(); AudioProcessorUsageMaxReset(); AudioMemoryUsageMaxReset(); resetWarningLatches(); break;
       case 'B': ocx.resetState(); break;
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
@@ -1812,17 +1831,37 @@ void setup() {
   Serial.println(F("Offline build validated; final analog validation still requires physical Teensy 4.1 + SGTL5000 hardware."));
   printStatus();
   printHelp();
+  resetWarningLatches();
 }
 
 void loop() {
   handleSerial();
   updateAutoCal();
+  maybePrintAutoLockSummary();
   updatePlaybackGuard();
   const unsigned long now = millis();
   if (now - lastStatusMs > 2000) {
     lastStatusMs = now;
-    if (ocx.hasInputClip()) Serial.println(F("[WARN] Input clipped at least once. Lower source level or reduce input trim."));
-    if (ocx.hasOutputClip()) Serial.println(F("[WARN] Output clipped at least once. Lower output trim or increase headroom."));
-    if (ocx.getAllocFailCount() > 0) Serial.println(F("[WARN] Audio block allocation failure observed."));
+    const uint32_t inputClipCount = ocx.getInputClipCount();
+    const uint32_t outputClipCount = ocx.getOutputClipCount();
+    const uint32_t allocFailCount = ocx.getAllocFailCount();
+    if (inputClipCount > lastWarnedInputClipCount) {
+      Serial.print(F("[WARN] Input clipping increased (new events="));
+      Serial.print(inputClipCount - lastWarnedInputClipCount);
+      Serial.println(F("). Lower source level or reduce input trim."));
+      lastWarnedInputClipCount = inputClipCount;
+    }
+    if (outputClipCount > lastWarnedOutputClipCount) {
+      Serial.print(F("[WARN] Output clipping increased (new events="));
+      Serial.print(outputClipCount - lastWarnedOutputClipCount);
+      Serial.println(F("). Lower output trim or increase headroom."));
+      lastWarnedOutputClipCount = outputClipCount;
+    }
+    if (allocFailCount > lastWarnedAllocFailCount) {
+      Serial.print(F("[WARN] Audio block allocation failures increased (new events="));
+      Serial.print(allocFailCount - lastWarnedAllocFailCount);
+      Serial.println(F(")."));
+      lastWarnedAllocFailCount = allocFailCount;
+    }
   }
 }
