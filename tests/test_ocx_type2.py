@@ -343,6 +343,76 @@ def test_auto_cal_reject_reasons_cover_no_fresh_data_and_lr_mismatch():
     assert lr_bad.reject_reason == "reject_lr_mismatch"
 
 
+def test_auto_cal_fresh_window_allows_recent_latched_values():
+    acc = evaluate_tone_acceptance(
+        ToneTelemetry(
+            tone_left=0.82,
+            tone_right=0.78,
+            peak_left=0.24,
+            peak_right=0.23,
+            fresh_tone_left=False,
+            fresh_tone_right=False,
+            fresh_peak_left=False,
+            fresh_peak_right=False,
+            tone_left_age_ms=120,
+            tone_right_age_ms=170,
+            peak_left_age_ms=100,
+            peak_right_age_ms=160,
+        ),
+        prev_peak_left=0.22,
+        prev_peak_right=0.21,
+    )
+    assert acc.accepted is False
+    assert acc.reject_reason == "reject_no_fresh_data"
+
+    # recent latched values with fresh flags should still pass within the freshness window
+    acc_recent = evaluate_tone_acceptance(
+        ToneTelemetry(
+            tone_left=0.82,
+            tone_right=0.78,
+            peak_left=0.24,
+            peak_right=0.23,
+            tone_left_age_ms=120,
+            tone_right_age_ms=170,
+            peak_left_age_ms=100,
+            peak_right_age_ms=160,
+        ),
+        prev_peak_left=0.22,
+        prev_peak_right=0.21,
+    )
+    assert acc_recent.accepted is True
+    assert acc_recent.reject_reason == "none"
+
+
+def test_auto_cal_stale_fresh_window_rejects_even_if_flags_are_true():
+    acc = evaluate_tone_acceptance(
+        ToneTelemetry(
+            tone_left=0.82,
+            tone_right=0.80,
+            peak_left=0.24,
+            peak_right=0.22,
+            tone_left_age_ms=480,
+            tone_right_age_ms=120,
+            peak_left_age_ms=110,
+            peak_right_age_ms=140,
+        ),
+        prev_peak_left=0.23,
+        prev_peak_right=0.21,
+    )
+    assert acc.accepted is False
+    assert acc.reject_reason == "reject_no_fresh_data"
+
+
+def test_auto_cal_low_level_lr_mismatch_does_not_fail_hard():
+    low_level = evaluate_tone_acceptance(
+        ToneTelemetry(tone_left=0.90, tone_right=0.08, peak_left=0.05, peak_right=0.005),
+        prev_peak_left=0.05,
+        prev_peak_right=0.006,
+    )
+    assert low_level.lr_ok is True
+    assert low_level.reject_reason != "reject_lr_mismatch"
+
+
 def test_auto_cal_candidate_selection_universal_vs_w1200():
     chosen_hot, _, _ = decide_candidate(peak_avg=0.78, rms_avg=0.37, lr_mismatch=0.10, stability_penalty=0.05)
     chosen_cool, _, _ = decide_candidate(peak_avg=0.50, rms_avg=0.30, lr_mismatch=0.02, stability_penalty=0.02)
@@ -366,7 +436,17 @@ def test_auto_cal_invalid_stored_profile_falls_back_to_universal():
 
 def test_auto_cal_stereo_telemetry_command_and_detectors_present():
     ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
-    for token in ["toneDetectRLo", "toneDetectRCenter", "toneDetectRHi", "peakR", "case 'K': printAutoCalRawTelemetry();"]:
+    for token in [
+        "toneDetectRLo",
+        "toneDetectRCenter",
+        "toneDetectRHi",
+        "peakR",
+        "case 'K': printAutoCalRawTelemetry();",
+        "kAutoFreshWindowMs",
+        "freshWinToneL",
+        "gateBlock=",
+        "lrCheck=",
+    ]:
         assert token in ino
 
 

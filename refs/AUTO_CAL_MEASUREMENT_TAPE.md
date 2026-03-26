@@ -38,6 +38,9 @@ Die Erkennung ist absichtlich tolerant gegen reale Deck-Abweichungen (Wow/Flutte
 
 - schmale Mehrbin-Prüfung um ~1 kHz (nicht nur exakt 1000.0 Hz),
 - Stereo-Auswertung (L+R) statt nur linker Kanal,
+- Freshness-Fenster mit gelatchten Analyzerwerten (statt "alle Analyzer exakt im selben Poll fresh"),
+- kurzer Warmup/Debounce beim Start von `AUTO_WAIT_FOR_TONE`,
+- LR-Mismatch wird bei sehr niedrigem Pegel nicht als harter Fehler gewertet,
 - harte Reject-Gründe sichtbar, z. B. `reject_tone_too_weak`, `reject_unstable`, `reject_lr_mismatch`.
 
 Wichtig: `AUTO_CAL` lockt nicht mehr nach wenigen Sekunden.  
@@ -45,7 +48,7 @@ Es werden längere Messfenster und mehrere valide Tonblöcke erwartet (3×30-s-S
 
 ## 6b) Roh-Telemetrie
 - `J`: kompakter Status
-- `K`: Rohtelemetrie (`toneL/toneR`, `peakL/peakR`, RMS-Proxies, Gate-Flags, Fresh-Data-Flags, Blockzähler, Zeit im State, Reject-Reason)
+- `K`: Rohtelemetrie (`toneL/toneR`, `peakL/peakR`, RMS-Proxies, Gate-Flags, Fresh-Data-Flags, Latched-Werte, Fresh-Ages, Blockzähler, Zeit im State, Reject-Reason)
 - `L`: gelockte AUTO_CAL-Werte
 
 ## 7) Speicherung

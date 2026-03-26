@@ -59,11 +59,16 @@ The current implementation was hardened for real-world cassette drift/jitter con
 
 - tone detection now uses a narrow tolerance band around 1 kHz (not only one exact bin),
 - both channels are evaluated (tone + peak + RMS proxy),
+- analyzer data now uses a **freshness window** (latched values + age checks) instead of requiring all analyzers to report in the exact same poll cycle,
+- WAIT state uses a short warmup/debounce gate before tone acceptance,
 - explicit reject reasons are surfaced (`reject_*`),
+- low-level LR mismatch is de-weighted until signal level is high enough to be meaningful,
 - measurement requires long-enough block accumulation (aligned to the documented 3×30 s tape structure) and prevents early lock after a few seconds,
 - candidate selection compares `universal` vs `w1200` with practical output-risk metrics (clip/headroom/plausibility), then locks `auto_cal`.
 
-For field debug, serial command `K` prints raw AUTO_CAL telemetry including gate flags, fresh-data flags, block counters, state time, and reject reason.
+For field debug, serial command `K` prints raw AUTO_CAL telemetry including gate flags, fresh-data flags, latched values, freshness ages, block counters, state time, and reject reason.
+
+Important honesty note: despite these guardrails, AUTO_CAL still requires renewed **real hardware** validation before any "works in all decks" claim is justified.
 
 Universal baseline (`ocx_type2_universal_v3_codec`) remains:
 
