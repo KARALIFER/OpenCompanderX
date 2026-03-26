@@ -1096,7 +1096,7 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
-    ap.add_argument("--preset", choices=["universal", "w1200", "auto_cal"], default="universal")
+    ap.add_argument("--preset", choices=["universal", "auto_cal"], default="universal")
     ap.add_argument("--reference-dir", type=Path, default=Path("refs"))
     ap.add_argument("--reference-source", choices=["all", "real", "synthetic"], default="all")
     ap.add_argument("--cassette-priority-only", action="store_true")

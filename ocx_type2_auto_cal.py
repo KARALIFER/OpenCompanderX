@@ -162,7 +162,4 @@ def decide_candidate(peak_avg: float, rms_avg: float, lr_mismatch: float, stabil
     universal = _candidate_score(
         peak_avg, rms_avg, lr_mismatch, stability_penalty, -1.0, 1.0, target_peak=0.52, target_rms=0.30, hot_penalty_scale=4.0, low_rms_guard=0.0
     )
-    w1200 = _candidate_score(
-        peak_avg, rms_avg, lr_mismatch, stability_penalty, -4.0, 3.0, target_peak=0.42, target_rms=0.24, hot_penalty_scale=0.5, low_rms_guard=0.18
-    )
-    return ("w1200" if w1200.total_score + 0.08 < universal.total_score else "universal", universal, w1200)
+    return ("universal", universal, universal)

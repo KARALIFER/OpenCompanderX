@@ -366,7 +366,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("output_wav", type=Path)
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
-    ap.add_argument("--preset", choices=["universal", "w1200", "auto_cal"], default="universal")
+    ap.add_argument("--preset", choices=["universal", "auto_cal"], default="universal")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--bypass", action="store_true")
     ap.add_argument("--override", action="append", default=[], help="Override as key=value (repeatable)")
