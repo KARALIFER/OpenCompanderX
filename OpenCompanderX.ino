@@ -1195,7 +1195,7 @@ void applyFactoryPreset() {
 
 void beginAutoCal() {
   wizardPass = 0;
-  wizardExpectedTransport = (deckType == DECK_DUAL_LW) ? TRANSPORT_LW1 : TRANSPORT_LW1;
+  if (deckType == DECK_SINGLE_LW) wizardExpectedTransport = TRANSPORT_LW1;
   Serial.print(F("[WIZARD] deck_type=")); Serial.print(deckTypeLabel(deckType));
   Serial.print(F(" expected_transport=")); Serial.println(transportLabel(wizardExpectedTransport));
   if (deckType == DECK_DUAL_LW) {

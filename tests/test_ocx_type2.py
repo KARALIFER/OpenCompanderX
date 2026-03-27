@@ -195,6 +195,21 @@ def test_profile_set_report_emits_all_slots():
     assert "per_profile" in report
 
 
+def test_dual_lw_autocal_keeps_selected_transport_and_slot_mapping():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    begin_body = re.search(r"void beginAutoCal\(\)\s*\{(.+?)\n\}", ino, re.S)
+    assert begin_body is not None
+    body = begin_body.group(1)
+    assert "if (deckType == DECK_SINGLE_LW) wizardExpectedTransport = TRANSPORT_LW1;" in body
+    assert "wizardExpectedTransport = (deckType == DECK_DUAL_LW) ? TRANSPORT_LW1 : TRANSPORT_LW1;" not in body
+
+    # Start command keeps dual-transport selection from activeTransport.
+    assert "wizardExpectedTransport = (activeTransport == TRANSPORT_LW2) ? TRANSPORT_LW2 : TRANSPORT_LW1;" in ino
+    # Slot mapping still depends on wizardExpectedTransport, so LW2 runs map to lw2Profile.
+    assert "if (wizardExpectedTransport == TRANSPORT_LW1)" in ino
+    assert "profileStore.lw2Profile = p;" in ino
+
+
 def test_profile_and_firmware_defaults_are_synced():
     profile = json.loads(PROFILE_PATH.read_text())
     decoder = profile["decoder"]
