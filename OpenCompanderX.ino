@@ -18,6 +18,8 @@
 // Forward declaration to keep Arduino auto-prototype generation safe for
 // functions that take PersistSettings before the struct definition appears.
 struct PersistSettings;
+void factoryResetSettings();
+void setAutoRejectReason(const char* reason);
 
 namespace OCXProfile {
 static constexpr float kFs = AUDIO_SAMPLE_RATE_EXACT;
@@ -68,6 +70,9 @@ enum AutoCalState : uint8_t { AUTO_IDLE = 0, AUTO_WAIT_FOR_TONE = 1, AUTO_MEASUR
 // Keep GuardState visible before Arduino auto-generated prototypes so
 // guardMarkChanged(...) signatures remain valid in Arduino-CLI builds.
 enum GuardState : uint8_t { GUARD_IDLE = 0, GUARD_BRAKE_A = 1, GUARD_PROTECT_B = 2, GUARD_RELAX_C = 3, GUARD_SETTLED = 4 };
+enum DeckType : uint8_t { DECK_SINGLE_LW = 0, DECK_DUAL_LW = 1 };
+enum TransportId : uint8_t { TRANSPORT_LW1 = 0, TRANSPORT_LW2 = 1 };
+enum ProfileSelect : uint8_t { PROFILE_SINGLE = 0, PROFILE_LW1 = 1, PROFILE_LW2 = 2, PROFILE_COMMON = 3 };
 
 
 static inline float clampf(float x, float lo, float hi) {
@@ -757,6 +762,7 @@ unsigned long guardLastStateChangeMs = 0;
 unsigned long guardLastPersistMs = 0;
 unsigned long guardLastTickMs = 0;
 unsigned long guardLastBrakeMs = 0;
+unsigned long guardStateAccumMs[5] = {0, 0, 0, 0, 0};
 uint8_t guardWindowPos = 0;
 uint8_t guardWindowCount = 0;
 uint16_t guardWindowClip1s = 0;
@@ -831,12 +837,79 @@ const char* autoRejectReason = "none";
 bool autoLockSummaryPending = false;
 static constexpr unsigned long kAutoFreshWindowMs = 450UL;
 static constexpr unsigned long kAutoWarmupMs = 1200UL;
+static constexpr uint8_t kExpectedSegments = 3;
+static constexpr uint32_t kSegmentTargetMs = 60000UL;
+static constexpr uint32_t kPauseTargetMs = 3000UL;
+static constexpr uint16_t kBlockPeriodMs = 150;
+static constexpr uint16_t kMinValidBlocksPerSegment = 240;
+static constexpr uint16_t kWarmupSkipBlocks = 6;
+static constexpr uint16_t kPauseDetectBlocks = 12;
+
+struct CalProfile {
+  float referenceDb = OCXProfile::kReferenceDb;
+  float outputTrimDb = OCXProfile::kOutputTrimDb;
+  float headroomDb = OCXProfile::kHeadroomDb;
+  float guardTrimStartDb = 0.0f;
+  float guardHeadroomStartDb = 0.0f;
+};
+
+struct MeasurementMeta {
+  uint8_t segmentsDetected = 0;
+  uint8_t segmentsValid = 0;
+  uint16_t segmentDurationSec[kExpectedSegments] = {0, 0, 0};
+  float segmentPeak[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
+  float segmentTone[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
+  float segmentSpread[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
+  float confidence = 0.0f;
+  uint32_t timestampMs = 0;
+  uint32_t persistVersion = 0;
+};
+
+struct ProfileStore {
+  CalProfile singleProfile{};
+  CalProfile lw1Profile{};
+  CalProfile lw2Profile{};
+  CalProfile commonProfile{};
+  MeasurementMeta singleMeta{};
+  MeasurementMeta lw1Meta{};
+  MeasurementMeta lw2Meta{};
+  MeasurementMeta commonMeta{};
+  uint8_t singleValid = 0;
+  uint8_t lw1Valid = 0;
+  uint8_t lw2Valid = 0;
+  uint8_t commonValid = 0;
+};
+
+struct SegmentAccumulator {
+  uint16_t blocksSeen = 0;
+  uint16_t validBlocks = 0;
+  float peakSum = 0.0f;
+  float peakSqSum = 0.0f;
+  float toneSum = 0.0f;
+  const char* rejectReason = "none";
+};
+
+DeckType deckType = DECK_SINGLE_LW;
+TransportId activeTransport = TRANSPORT_LW1;
+TransportId wizardExpectedTransport = TRANSPORT_LW1;
+ProfileSelect selectedProfile = PROFILE_SINGLE;
+ProfileStore profileStore{};
+SegmentAccumulator segAccum{};
+uint8_t wizardPass = 0;
+uint8_t wizardDetectedSegments = 0;
+uint8_t wizardValidSegments = 0;
+uint8_t wizardCurrentSegment = 0;
+bool wizardInTone = false;
+uint16_t wizardPauseBlocks = 0;
 
 struct PersistSettings {
   uint32_t magic;
   uint16_t version;
   uint8_t mode;
   uint8_t presetId;
+  uint8_t deckType;
+  uint8_t activeTransport;
+  uint8_t selectedProfile;
   uint8_t autoCalValid;
   uint8_t guardEnabled;
   float autoCalReferenceDb;
@@ -846,10 +919,11 @@ struct PersistSettings {
   float guardHeadroomOffsetDb;
   float guardBoostCapReductionDb;
   uint32_t guardLastPersistMs;
+  ProfileStore profileStore;
   uint32_t checksum;
 };
 static constexpr uint32_t kSettingsMagic = 0x4F435831u;
-static constexpr uint16_t kSettingsVersion = 3;
+static constexpr uint16_t kSettingsVersion = 4;
 static constexpr int kSettingsAddr = 0;
 
 uint32_t settingsChecksum(const uint8_t *p, size_t n) {
@@ -878,6 +952,36 @@ const char* guardStateLabel(uint8_t s) {
     case GUARD_IDLE:
     default: return "IDLE";
   }
+}
+
+const char* deckTypeLabel(uint8_t t) {
+  return (t == DECK_DUAL_LW) ? "DUAL_LW" : "SINGLE_LW";
+}
+
+const char* transportLabel(uint8_t t) {
+  return (t == TRANSPORT_LW2) ? "LW2" : "LW1";
+}
+
+const char* profileSelectLabel(uint8_t p) {
+  switch ((ProfileSelect)p) {
+    case PROFILE_LW1: return "LW1_PROFILE";
+    case PROFILE_LW2: return "LW2_PROFILE";
+    case PROFILE_COMMON: return "COMMON_PROFILE";
+    case PROFILE_SINGLE:
+    default: return "SINGLE_PROFILE";
+  }
+}
+
+CalProfile* mutableProfileForSelection(ProfileSelect p) {
+  if (p == PROFILE_COMMON) return &profileStore.commonProfile;
+  if (deckType == DECK_SINGLE_LW || p == PROFILE_SINGLE) return &profileStore.singleProfile;
+  return (p == PROFILE_LW2) ? &profileStore.lw2Profile : &profileStore.lw1Profile;
+}
+
+bool profileSelectionValid(ProfileSelect p) {
+  if (p == PROFILE_COMMON) return profileStore.commonValid != 0;
+  if (deckType == DECK_SINGLE_LW || p == PROFILE_SINGLE) return profileStore.singleValid != 0;
+  return (p == PROFILE_LW2) ? (profileStore.lw2Valid != 0) : (profileStore.lw1Valid != 0);
 }
 
 void applyEffectiveDecoderSettings() {
@@ -919,9 +1023,18 @@ void applyDecoderPreset(uint8_t id) {
   staticOutputTrimDb = OCXProfile::kOutputTrimDb;
   staticHeadroomDb = OCXProfile::kHeadroomDb;
   if ((PresetId)id == PRESET_AUTO_CAL && autoCalValid) {
-    staticReferenceDb = autoCalReferenceDb;
-    staticOutputTrimDb = autoCalOutputTrimDb;
-    staticHeadroomDb = autoCalHeadroomDb;
+    if (profileSelectionValid(selectedProfile)) {
+      CalProfile* p = mutableProfileForSelection(selectedProfile);
+      staticReferenceDb = p->referenceDb;
+      staticOutputTrimDb = p->outputTrimDb;
+      staticHeadroomDb = p->headroomDb;
+      guardTrimOffsetDb = clampf(p->guardTrimStartDb, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+      guardHeadroomOffsetDb = clampf(p->guardHeadroomStartDb, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    } else {
+      staticReferenceDb = autoCalReferenceDb;
+      staticOutputTrimDb = autoCalOutputTrimDb;
+      staticHeadroomDb = autoCalHeadroomDb;
+    }
   }
   applyEffectiveDecoderSettings();
   currentPreset = (PresetId)id;
@@ -933,6 +1046,9 @@ void persistSettings() {
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(ocx.getMode());
   s.presetId = static_cast<uint8_t>(currentPreset);
+  s.deckType = static_cast<uint8_t>(deckType);
+  s.activeTransport = static_cast<uint8_t>(activeTransport);
+  s.selectedProfile = static_cast<uint8_t>(selectedProfile);
   s.autoCalValid = autoCalValid ? 1 : 0;
   s.guardEnabled = guardEnabled ? 1 : 0;
   s.autoCalReferenceDb = autoCalReferenceDb;
@@ -942,6 +1058,7 @@ void persistSettings() {
   s.guardHeadroomOffsetDb = guardHeadroomOffsetDb;
   s.guardBoostCapReductionDb = guardBoostCapReductionDb;
   s.guardLastPersistMs = millis();
+  s.profileStore = profileStore;
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
   guardTrimOffsetPersistedDb = guardTrimOffsetDb;
@@ -954,14 +1071,24 @@ void persistSettings() {
 void loadSettingsOrFactory() {
   PersistSettings s{};
   EEPROM.get(kSettingsAddr, s);
+  if (s.magic == kSettingsMagic && s.version == 3) {
+    factoryResetSettings();
+    return;
+  }
   const bool ok = s.magic == kSettingsMagic &&
                   s.version == kSettingsVersion &&
                   s.checksum == settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t)) &&
                   s.mode <= 1 &&
-                  s.presetId <= PRESET_AUTO_CAL;
+                  s.presetId <= PRESET_AUTO_CAL &&
+                  s.deckType <= DECK_DUAL_LW &&
+                  s.activeTransport <= TRANSPORT_LW2 &&
+                  s.selectedProfile <= PROFILE_COMMON;
   if (ok) {
     ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
     currentPreset = static_cast<PresetId>(s.presetId);
+    deckType = static_cast<DeckType>(s.deckType);
+    activeTransport = static_cast<TransportId>(s.activeTransport);
+    selectedProfile = static_cast<ProfileSelect>(s.selectedProfile);
     autoCalValid = s.autoCalValid != 0;
     autoCalReferenceDb = clampf(s.autoCalReferenceDb, -30.0f, -10.0f);
     autoCalOutputTrimDb = clampf(s.autoCalOutputTrimDb, -6.0f, 0.0f);
@@ -974,11 +1101,16 @@ void loadSettingsOrFactory() {
     guardHeadroomOffsetPersistedDb = guardHeadroomOffsetDb;
     guardBoostCapReductionPersistedDb = guardBoostCapReductionDb;
     guardLastPersistMs = s.guardLastPersistMs;
+    profileStore = s.profileStore;
     guardDirty = false;
     applyDecoderPreset(currentPreset);
   } else {
     ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
     currentPreset = PRESET_UNIVERSAL;
+    deckType = DECK_SINGLE_LW;
+    activeTransport = TRANSPORT_LW1;
+    selectedProfile = PROFILE_SINGLE;
+    profileStore = ProfileStore{};
     autoCalValid = false;
     guardEnabled = true;
     guardTrimOffsetDb = 0.0f;
@@ -999,6 +1131,9 @@ void factoryResetSettings() {
   s.version = kSettingsVersion;
   s.mode = static_cast<uint8_t>(AudioEffectOCXType2CodecStereo::MODE_DECODE);
   s.presetId = static_cast<uint8_t>(PRESET_UNIVERSAL);
+  s.deckType = static_cast<uint8_t>(DECK_SINGLE_LW);
+  s.activeTransport = static_cast<uint8_t>(TRANSPORT_LW1);
+  s.selectedProfile = static_cast<uint8_t>(PROFILE_SINGLE);
   s.autoCalValid = 0;
   s.guardEnabled = 1;
   s.autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -1008,12 +1143,17 @@ void factoryResetSettings() {
   s.guardHeadroomOffsetDb = 0.0f;
   s.guardBoostCapReductionDb = 0.0f;
   s.guardLastPersistMs = 0;
+  s.profileStore = ProfileStore{};
   s.checksum = settingsChecksum(reinterpret_cast<const uint8_t *>(&s), sizeof(PersistSettings) - sizeof(uint32_t));
   EEPROM.put(kSettingsAddr, s);
   ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE);
   autoCalValid = false;
   autoCalState = AUTO_IDLE;
   currentPreset = PRESET_UNIVERSAL;
+  deckType = DECK_SINGLE_LW;
+  activeTransport = TRANSPORT_LW1;
+  selectedProfile = PROFILE_SINGLE;
+  profileStore = ProfileStore{};
   guardEnabled = true;
   guardTrimOffsetDb = 0.0f;
   guardHeadroomOffsetDb = 0.0f;
@@ -1054,6 +1194,15 @@ void applyFactoryPreset() {
 }
 
 void beginAutoCal() {
+  wizardPass = 0;
+  wizardExpectedTransport = (deckType == DECK_DUAL_LW) ? TRANSPORT_LW1 : TRANSPORT_LW1;
+  Serial.print(F("[WIZARD] deck_type=")); Serial.print(deckTypeLabel(deckType));
+  Serial.print(F(" expected_transport=")); Serial.println(transportLabel(wizardExpectedTransport));
+  if (deckType == DECK_DUAL_LW) {
+    Serial.println(F("[WIZARD] Step 1/2: Bitte Deck auf LW1 stellen und 1-kHz Messton starten (3x60s, ~3s Pause)."));
+  } else {
+    Serial.println(F("[WIZARD] Step 1/1: Single-LW Messung starten (1-kHz 3x60s, ~3s Pause)."));
+  }
   autoCalState = AUTO_WAIT_FOR_TONE;
   autoStateEnterMs = millis();
   lastAutoMeasureMs = 0;
@@ -1109,9 +1258,21 @@ void beginAutoCal() {
   autoRejectReason = "none";
   autoCalScore = 0.0f;
   autoLockSummaryPending = false;
+  wizardDetectedSegments = 0;
+  wizardValidSegments = 0;
+  wizardCurrentSegment = 0;
+  wizardInTone = false;
+  wizardPauseBlocks = 0;
+  segAccum = SegmentAccumulator{};
 }
 
 void computeAutoCalResult() {
+  const uint8_t validSegs = wizardValidSegments;
+  if (validSegs < 2) {
+    autoCalState = AUTO_FAILED;
+    setAutoRejectReason(validSegs == 1 ? "reject_only_one_segment" : "reject_not_enough_segments");
+    return;
+  }
   const float peakAvg = autoPeakAccum / fmaxf((float)autoBlocksValid, 1.0f);
   const float rmsAvg = autoRmsAccum / fmaxf((float)autoBlocksValid, 1.0f);
   const float toneAvg = autoToneAccum / fmaxf((float)autoBlocksValid, 1.0f);
@@ -1132,10 +1293,56 @@ void computeAutoCalResult() {
   const float baseOutputTrim = OCXProfile::kOutputTrimDb;
   const float baseHeadroom = OCXProfile::kHeadroomDb;
   autoCalReferenceDb = clampf(baseReference + clampf((0.28f - rmsAvg) * 8.0f, -2.0f, 2.0f), baseReference - 2.0f, baseReference + 2.0f);
-  autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.44f - peakAvg) * 3.0f, -0.75f, 0.5f), -2.5f, 0.0f);
-  autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.54f) * 2.0f, -0.25f, 0.75f), 1.0f, 3.5f);
+  autoCalOutputTrimDb = clampf(baseOutputTrim + clampf((0.43f - peakAvg) * 2.3f, -0.8f, 0.25f), -2.8f, 0.0f);
+  autoCalHeadroomDb = clampf(baseHeadroom + clampf((peakAvg - 0.52f) * 1.8f, -0.15f, 1.0f), 1.0f, 3.8f);
   autoCalScore = 100.0f - 100.0f * (scoreUniversal + fmaxf(0.0f, 0.70f - toneAvg));
+  if (validSegs == 2) autoCalScore -= 7.0f;
   autoCalValid = true;
+
+  CalProfile p{};
+  p.referenceDb = autoCalReferenceDb;
+  p.outputTrimDb = autoCalOutputTrimDb;
+  p.headroomDb = autoCalHeadroomDb;
+  p.guardTrimStartDb = clampf((peakAvg - 0.55f) * -0.8f, -0.5f, 0.0f);
+  p.guardHeadroomStartDb = clampf((peakAvg - 0.55f) * 0.8f, 0.0f, 0.6f);
+  MeasurementMeta meta{};
+  meta.segmentsDetected = wizardDetectedSegments;
+  meta.segmentsValid = wizardValidSegments;
+  meta.confidence = clampf((float)validSegs / 3.0f - fmaxf(0.0f, 0.20f - toneAvg), 0.0f, 1.0f);
+  meta.timestampMs = millis();
+  meta.persistVersion = kSettingsVersion;
+  for (uint8_t i = 0; i < kExpectedSegments; ++i) {
+    meta.segmentDurationSec[i] = (uint16_t)((uint32_t)autoCurrentSegmentBlocks * kBlockPeriodMs / 1000UL);
+  }
+
+  if (deckType == DECK_SINGLE_LW) {
+    profileStore.singleProfile = p;
+    profileStore.singleMeta = meta;
+    profileStore.singleValid = 1;
+    selectedProfile = PROFILE_SINGLE;
+  } else {
+    if (wizardExpectedTransport == TRANSPORT_LW1) {
+      profileStore.lw1Profile = p;
+      profileStore.lw1Meta = meta;
+      profileStore.lw1Valid = 1;
+      selectedProfile = PROFILE_LW1;
+    } else {
+      profileStore.lw2Profile = p;
+      profileStore.lw2Meta = meta;
+      profileStore.lw2Valid = 1;
+      selectedProfile = PROFILE_LW2;
+    }
+    if (profileStore.lw1Valid && profileStore.lw2Valid) {
+      profileStore.commonProfile.referenceDb = 0.5f * (profileStore.lw1Profile.referenceDb + profileStore.lw2Profile.referenceDb);
+      profileStore.commonProfile.outputTrimDb = 0.5f * (profileStore.lw1Profile.outputTrimDb + profileStore.lw2Profile.outputTrimDb);
+      profileStore.commonProfile.headroomDb = fmaxf(profileStore.lw1Profile.headroomDb, profileStore.lw2Profile.headroomDb);
+      profileStore.commonProfile.guardTrimStartDb = fminf(profileStore.lw1Profile.guardTrimStartDb, profileStore.lw2Profile.guardTrimStartDb);
+      profileStore.commonProfile.guardHeadroomStartDb = fmaxf(profileStore.lw1Profile.guardHeadroomStartDb, profileStore.lw2Profile.guardHeadroomStartDb);
+      profileStore.commonMeta.confidence = fminf(profileStore.lw1Meta.confidence, profileStore.lw2Meta.confidence) * 0.9f;
+      profileStore.commonValid = 1;
+    }
+  }
+
   currentPreset = PRESET_AUTO_CAL;
   applyDecoderPreset(PRESET_AUTO_CAL);
   autoCalState = AUTO_LOCKED;
@@ -1248,6 +1455,9 @@ void printAutoCalRawTelemetry() {
   Serial.print(F(" blocksValid=")); Serial.print(autoBlocksValid);
   Serial.print(F(" toneBlocks=")); Serial.print(autoToneBlocks);
   Serial.print(F(" toneSeg=")); Serial.print(autoToneSegments);
+  Serial.print(F(" segDetected=")); Serial.print(wizardDetectedSegments);
+  Serial.print(F(" segValid=")); Serial.print(wizardValidSegments);
+  Serial.print(F(" expectedTransport=")); Serial.print(transportLabel(wizardExpectedTransport));
   Serial.print(F(" goodWin=")); Serial.print(autoConsecutiveToneReady);
   Serial.print(F(" gateBlock=")); Serial.print(autoGateBlockReason);
   Serial.print(F(" outClipCount=")); Serial.print(ocx.getOutputClipCount());
@@ -1302,7 +1512,7 @@ void updateAutoCal() {
   }
 
   if (autoCalState == AUTO_MEASURE) {
-    if (now - lastAutoMeasureMs >= 150UL) {
+    if (now - lastAutoMeasureMs >= kBlockPeriodMs) {
       lastAutoMeasureMs = now;
       ++autoBlocksSeen;
       if (gateOk) {
@@ -1311,24 +1521,32 @@ void updateAutoCal() {
         ++autoCurrentSegmentValidBlocks;
         ++autoCurrentSegmentBlocks;
         autoSilenceBlocks = 0;
+        wizardPauseBlocks = 0;
+        wizardInTone = true;
         autoPeakAccum += 0.5f * (autoPeakL + autoPeakR);
         autoRmsAccum += 0.5f * (autoRmsProxyL + autoRmsProxyR);
         autoToneAccum += fmaxf(autoToneMetricL, autoToneMetricR);
       } else {
         ++autoSilenceBlocks;
-        if (autoCurrentSegmentBlocks > 0 && autoSilenceBlocks >= 4) {
-          if (autoCurrentSegmentValidBlocks >= 120) ++autoToneSegments;
+        ++wizardPauseBlocks;
+        if (autoCurrentSegmentBlocks > 0 && autoSilenceBlocks >= kPauseDetectBlocks) {
+          ++wizardDetectedSegments;
+          if (autoCurrentSegmentValidBlocks >= kMinValidBlocksPerSegment) {
+            ++autoToneSegments;
+            ++wizardValidSegments;
+          }
           autoCurrentSegmentBlocks = 0;
           autoCurrentSegmentValidBlocks = 0;
+          wizardInTone = false;
         }
       }
     }
-    const bool enoughSegments = (autoToneSegments >= 2) || (autoToneSegments >= 1 && autoCurrentSegmentValidBlocks >= 150);
-    const bool enoughDuration = (now - autoStateEnterMs) >= 70000UL;
+    const bool enoughSegments = (wizardValidSegments >= 3) || (wizardDetectedSegments >= 3 && wizardValidSegments >= 2);
+    const bool enoughDuration = (now - autoStateEnterMs) >= (kSegmentTargetMs * 3UL + kPauseTargetMs * 2UL);
     if (enoughSegments && autoToneBlocks >= 320 && autoBlocksSeen >= 360 && enoughDuration) {
       autoCalState = AUTO_COMPUTE;
       autoRejectReason = "none";
-    } else if (now - autoStateEnterMs > 130000UL) {
+    } else if (now - autoStateEnterMs > 230000UL) {
       autoCalState = AUTO_FAILED;
       setAutoRejectReason("reject_unstable");
     }
@@ -1363,6 +1581,8 @@ void updatePlaybackGuard() {
     maybePersistGuard(now);
     return;
   }
+  const unsigned long dtMs = now - guardLastTickMs;
+  guardStateAccumMs[(uint8_t)guardState] += dtMs;
   guardLastTickMs = now;
   const AudioEffectOCXType2CodecStereo::DiagSnapshot d = ocx.getSignalDiagnosticsSnapshot();
   static uint32_t prevNearBoost = 0;
@@ -1406,7 +1626,7 @@ void updatePlaybackGuard() {
 
   const bool triggerA = outClipNew > 0 || outPeakMono >= 0.985f || guardWindowNearLimit10s >= 250;
   const bool triggerB = guardWindowNearLimit10s >= 700 || guardWindowBoostClamp10s >= 300;
-  const bool stableForRelax = (now - guardLastBrakeMs) >= 30000UL && guardWindowClip1s == 0 && guardWindowNearLimit10s <= 80 && guardWindowBoostClamp10s <= 60;
+  const bool stableForRelax = (now - guardLastBrakeMs) >= 45000UL && guardWindowClip1s == 0 && guardWindowNearLimit10s <= 70 && guardWindowBoostClamp10s <= 50;
 
   if (triggerA) {
     guardTrimOffsetDb = clampf(guardTrimOffsetDb - 0.5f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
@@ -1421,9 +1641,9 @@ void updatePlaybackGuard() {
     guardBoostCapReductionDb = clampf(guardBoostCapReductionDb - 0.5f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
     guardMarkChanged(now, GUARD_PROTECT_B, "boost_near_limit");
   } else if (stableForRelax && (guardTrimOffsetDb < 0.0f || guardHeadroomOffsetDb > 0.0f || guardBoostCapReductionDb < 0.0f)) {
-    guardTrimOffsetDb = clampf(guardTrimOffsetDb + 0.25f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
-    guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb - 0.25f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
-    guardBoostCapReductionDb = clampf(guardBoostCapReductionDb + 0.25f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
+    guardTrimOffsetDb = clampf(guardTrimOffsetDb + 0.15f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
+    guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb - 0.15f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
+    guardBoostCapReductionDb = clampf(guardBoostCapReductionDb + 0.15f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
     guardMarkChanged(now, GUARD_RELAX_C, "stable_relax");
   } else {
     if (guardTrimOffsetDb == 0.0f && guardHeadroomOffsetDb == 0.0f && guardBoostCapReductionDb == 0.0f) {
@@ -1455,6 +1675,11 @@ void printHelp() {
   Serial.println(F("  j  : print preset"));
   Serial.println(F("  u  : select preset UNIVERSAL"));
   Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
+  Serial.println(F("  1/2: set deck type SINGLE_LW / DUAL_LW"));
+  Serial.println(F("  [ ]: set active transport LW1 / LW2"));
+  Serial.println(F("  {  : select dedicated profile (single or active transport)"));
+  Serial.println(F("  }  : select common profile (dual-deck fallback)"));
+  Serial.println(F("  |  : print stored profile summary"));
   Serial.println(F("  J  : print AUTO_CAL state"));
   Serial.println(F("  K  : print AUTO_CAL raw telemetry/reject reasons"));
   Serial.println(F("  L  : print locked AUTO_CAL values"));
@@ -1536,6 +1761,9 @@ void printCompactTelemetryLine() {
   Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
   Serial.print(F(" auto=")); Serial.print(autoCalStateLabel(autoCalState));
   Serial.print(F(" autoValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F(" deck=")); Serial.print(deckTypeLabel(deckType));
+  Serial.print(F(" tr=")); Serial.print(transportLabel(activeTransport));
+  Serial.print(F(" prof=")); Serial.print(profileSelectLabel(selectedProfile));
   Serial.print(F(" guardEnabled=")); Serial.print(guardEnabled ? F("YES") : F("NO"));
   Serial.print(F(" guardState=")); Serial.print(guardStateLabel(guardState));
   Serial.print(F(" guardReason=")); Serial.print(guardReason);
@@ -1545,6 +1773,9 @@ void printCompactTelemetryLine() {
   Serial.print(F(" guardWindowClip1s=")); Serial.print(guardWindowClip1s);
   Serial.print(F(" guardWindowNearLimit10s=")); Serial.print(guardWindowNearLimit10s);
   Serial.print(F(" guardWindowBoostClamp10s=")); Serial.print(guardWindowBoostClamp10s);
+  Serial.print(F(" nearLimitPct10s=")); Serial.print(clampf((float)guardWindowNearLimit10s / 1280.0f * 100.0f, 0.0f, 100.0f), 1);
+  Serial.print(F(" clampBoostPct10s=")); Serial.print(clampf((float)guardWindowBoostClamp10s / 1280.0f * 100.0f, 0.0f, 100.0f), 1);
+  Serial.print(F(" protectStateMs=")); Serial.print(guardStateAccumMs[GUARD_BRAKE_A] + guardStateAccumMs[GUARD_PROTECT_B]);
   Serial.print(F(" guardStableMs=")); Serial.print(millis() - guardLastStateChangeMs);
   Serial.print(F(" guardDirty=")); Serial.print(guardDirty ? F("YES") : F("NO"));
   Serial.print(F(" guardLastPersistMs=")); Serial.print(guardLastPersistMs);
@@ -1653,8 +1884,19 @@ void printStatus() {
   Serial.println(F("==== OCX TYPE 2 STATUS ===="));
   Serial.print(F("Mode: ")); Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE"));
   Serial.print(F("Preset: ")); Serial.println(presetLabel(currentPreset));
+  Serial.print(F("Deck type: ")); Serial.println(deckTypeLabel(deckType));
+  Serial.print(F("Active transport: ")); Serial.println(transportLabel(activeTransport));
+  Serial.print(F("Selected profile: ")); Serial.println(profileSelectLabel(selectedProfile));
+  Serial.print(F("Profile validity single/lw1/lw2/common: "));
+  Serial.print(profileStore.singleValid ? F("Y") : F("N")); Serial.print(F("/"));
+  Serial.print(profileStore.lw1Valid ? F("Y") : F("N")); Serial.print(F("/"));
+  Serial.print(profileStore.lw2Valid ? F("Y") : F("N")); Serial.print(F("/"));
+  Serial.println(profileStore.commonValid ? F("Y") : F("N"));
   Serial.print(F("AUTO_CAL state: ")); Serial.println(autoCalStateLabel(autoCalState));
   Serial.print(F("AUTO_CAL values valid: ")); Serial.println(autoCalValid ? F("YES") : F("NO"));
+  Serial.print(F("Wizard expected transport: ")); Serial.println(transportLabel(wizardExpectedTransport));
+  Serial.print(F("Wizard segments detected/valid: ")); Serial.print(wizardDetectedSegments); Serial.print(F("/")); Serial.println(wizardValidSegments);
+  Serial.print(F("Wizard reject reason: ")); Serial.println(autoRejectReason);
   Serial.print(F("PLAYBACK_GUARD_DYNAMIC: ")); Serial.println(guardEnabled ? F("ON") : F("OFF"));
   Serial.print(F("Periodic DIAG mode: ")); Serial.println(diagModeEnabled ? F("ON (3 s)") : F("OFF"));
   Serial.print(F("Guard state/reason: ")); Serial.print(guardStateLabel(guardState)); Serial.print(F(" / ")); Serial.println(guardReason);
@@ -1700,6 +1942,9 @@ void printAutoCalStatus() {
   Serial.print(F(" blocks=")); Serial.print(autoBlocksValid); Serial.print(F("/")); Serial.print(autoBlocksSeen);
   Serial.print(F(" toneBlocks=")); Serial.print(autoToneBlocks);
   Serial.print(F(" toneSeg=")); Serial.print(autoToneSegments);
+  Serial.print(F(" segDetected=")); Serial.print(wizardDetectedSegments);
+  Serial.print(F(" segValid=")); Serial.print(wizardValidSegments);
+  Serial.print(F(" expected=")); Serial.print(transportLabel(wizardExpectedTransport));
   Serial.print(F(" score=")); Serial.println(autoCalScore, 2);
 }
 
@@ -1711,6 +1956,28 @@ void printAutoCalLockedValues() {
   Serial.print(F(" guardTrimOffsetDb=")); Serial.print(guardTrimOffsetDb, 2);
   Serial.print(F(" guardHeadroomOffsetDb=")); Serial.print(guardHeadroomOffsetDb, 2);
   Serial.print(F(" guardBoostCapReductionDb=")); Serial.println(guardBoostCapReductionDb, 2);
+}
+
+void printStoredProfiles() {
+  Serial.print(F("[PROFILES] deck_type=")); Serial.print(deckTypeLabel(deckType));
+  Serial.print(F(" active_transport=")); Serial.print(transportLabel(activeTransport));
+  Serial.print(F(" selected=")); Serial.println(profileSelectLabel(selectedProfile));
+  Serial.print(F("[PROFILES] single_valid=")); Serial.print(profileStore.singleValid ? F("YES") : F("NO"));
+  Serial.print(F(" lw1_valid=")); Serial.print(profileStore.lw1Valid ? F("YES") : F("NO"));
+  Serial.print(F(" lw2_valid=")); Serial.print(profileStore.lw2Valid ? F("YES") : F("NO"));
+  Serial.print(F(" common_valid=")); Serial.println(profileStore.commonValid ? F("YES") : F("NO"));
+  Serial.print(F("[PROFILES_SINGLE] ref=")); Serial.print(profileStore.singleProfile.referenceDb, 2);
+  Serial.print(F(" trim=")); Serial.print(profileStore.singleProfile.outputTrimDb, 2);
+  Serial.print(F(" head=")); Serial.println(profileStore.singleProfile.headroomDb, 2);
+  Serial.print(F("[PROFILES_LW1] ref=")); Serial.print(profileStore.lw1Profile.referenceDb, 2);
+  Serial.print(F(" trim=")); Serial.print(profileStore.lw1Profile.outputTrimDb, 2);
+  Serial.print(F(" head=")); Serial.println(profileStore.lw1Profile.headroomDb, 2);
+  Serial.print(F("[PROFILES_LW2] ref=")); Serial.print(profileStore.lw2Profile.referenceDb, 2);
+  Serial.print(F(" trim=")); Serial.print(profileStore.lw2Profile.outputTrimDb, 2);
+  Serial.print(F(" head=")); Serial.println(profileStore.lw2Profile.headroomDb, 2);
+  Serial.print(F("[PROFILES_COMMON] ref=")); Serial.print(profileStore.commonProfile.referenceDb, 2);
+  Serial.print(F(" trim=")); Serial.print(profileStore.commonProfile.outputTrimDb, 2);
+  Serial.print(F(" head=")); Serial.println(profileStore.commonProfile.headroomDb, 2);
 }
 
 void printPeriodicDiagLine() {
@@ -1784,6 +2051,13 @@ void maybePrintAutoLockSummary() {
   if (!autoLockSummaryPending || autoCalState != AUTO_LOCKED) return;
   printAutoCalStatus();
   printAutoCalLockedValues();
+  if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW1) {
+    Serial.println(F("[WIZARD] Step 1/2 abgeschlossen (LW1). Jetzt Deck auf LW2 stellen und 'l' erneut starten."));
+  } else if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW2) {
+    Serial.println(F("[WIZARD] Step 2/2 abgeschlossen (LW2). Optional: common_profile per '}' aktivieren."));
+  } else {
+    Serial.println(F("[WIZARD] Single-LW Messung abgeschlossen."));
+  }
   autoLockSummaryPending = false;
 }
 
@@ -1821,7 +2095,50 @@ void handleSerial() {
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
       case 'j': Serial.println(presetLabel(currentPreset)); break;
       case 'u': currentPreset = PRESET_UNIVERSAL; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
-      case 'l': beginAutoCal(); break;
+      case '1':
+        deckType = DECK_SINGLE_LW;
+        activeTransport = TRANSPORT_LW1;
+        selectedProfile = PROFILE_SINGLE;
+        Serial.println(F("[CFG] deck_type=SINGLE_LW"));
+        break;
+      case '2':
+        deckType = DECK_DUAL_LW;
+        selectedProfile = (activeTransport == TRANSPORT_LW2) ? PROFILE_LW2 : PROFILE_LW1;
+        Serial.println(F("[CFG] deck_type=DUAL_LW"));
+        break;
+      case '[':
+        activeTransport = TRANSPORT_LW1;
+        if (deckType == DECK_DUAL_LW && selectedProfile != PROFILE_COMMON) selectedProfile = PROFILE_LW1;
+        Serial.println(F("[CFG] active_transport=LW1"));
+        break;
+      case ']':
+        activeTransport = TRANSPORT_LW2;
+        if (deckType == DECK_DUAL_LW && selectedProfile != PROFILE_COMMON) selectedProfile = PROFILE_LW2;
+        Serial.println(F("[CFG] active_transport=LW2"));
+        break;
+      case '{':
+        selectedProfile = (deckType == DECK_SINGLE_LW) ? PROFILE_SINGLE : ((activeTransport == TRANSPORT_LW2) ? PROFILE_LW2 : PROFILE_LW1);
+        if ((currentPreset == PRESET_AUTO_CAL) && profileSelectionValid(selectedProfile)) applyDecoderPreset(PRESET_AUTO_CAL);
+        Serial.print(F("[CFG] selected_profile=")); Serial.println(profileSelectLabel(selectedProfile));
+        break;
+      case '}':
+        if (deckType == DECK_DUAL_LW && profileStore.commonValid) {
+          selectedProfile = PROFILE_COMMON;
+          if (currentPreset == PRESET_AUTO_CAL) applyDecoderPreset(PRESET_AUTO_CAL);
+          Serial.println(F("[CFG] selected_profile=COMMON_PROFILE"));
+        } else {
+          Serial.println(F("[CFG] common_profile not valid"));
+        }
+        break;
+      case '|': printStoredProfiles(); break;
+      case 'l':
+        if (deckType == DECK_DUAL_LW) {
+          wizardExpectedTransport = (activeTransport == TRANSPORT_LW2) ? TRANSPORT_LW2 : TRANSPORT_LW1;
+        } else {
+          wizardExpectedTransport = TRANSPORT_LW1;
+        }
+        beginAutoCal();
+        break;
       case 'J': printAutoCalStatus(); break;
       case 'K': printAutoCalRawTelemetry(); break;
       case 'L': printAutoCalLockedValues(); break;

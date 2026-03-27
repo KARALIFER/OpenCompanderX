@@ -19,6 +19,28 @@ Die Methodik trennt strikt:
 - Output-Schutz ist zentralisiert (`finalizeOutput`) und gilt konsistent sowohl im Decode-Pfad als auch im Bypass-Pfad.
 - Simulator bietet zusätzlich einen RMS-näheren Detectorpfad für methodische A/B-Vergleiche gegen den bisherigen energy-nahen Pfad.
 - Universalprofil bleibt konservativ (`ocx_type2_universal_v2`), ohne Über-Claims.
+- Firmware unterstützt jetzt Deck-Topologie (`SINGLE_LW` / `DUAL_LW`) und getrennte Profilslots (`single`, `lw1`, `lw2`, optional `common`).
+
+## Pflicht-Workflow für reale Decks (neu)
+
+- Single-LW: ein kompletter Messlauf (1 kHz, 3x60 s + ~3 s Pausen).
+- Dual-LW: sequentieller Wizard-Lauf:
+  1) LW1 auswählen und komplett messen,
+  2) LW2 auswählen und komplett messen.
+- Keine pseudo-automatische Laufwerkserkennung ohne Hardware-Signal.
+- `common_profile` ist nur ein konservativer Fallback, nicht automatisch die Bestwahl.
+
+## Für belastbare Bewertung erforderlich/empfohlen
+
+Erforderlich (wenn noch nicht vollständig vorhanden):
+- LW1: vollständige 1-kHz-Messung (3 x 60 s + ~3 s Pause).
+- LW2: vollständige 1-kHz-Messung (3 x 60 s + ~3 s Pause).
+- Pro Laufwerk mindestens zwei Musiktests (Album A + Album B).
+
+Empfohlen zusätzlich:
+- 400 Hz, 1 kHz, 3.15 kHz, 10 kHz je mit mehreren Pegeln.
+- Burst-/Transient-Fälle, Noise und Sweep.
+- Cassette A uncompanded (Pfadkontrolle) und Cassette B Type-II encoded (Decoderabstimmung).
 
 ## Methodikdetails
 

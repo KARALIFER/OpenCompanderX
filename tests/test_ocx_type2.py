@@ -20,7 +20,7 @@ from ocx_type2_auto_cal import (
     has_enough_measurement,
     update_block_tracker,
 )
-from ocx_type2_harness import build_case_specs, compare, evaluate_scores, run_detector_study, run_tuning
+from ocx_type2_harness import build_case_specs, compare, evaluate_profile_set, evaluate_scores, run_detector_study, run_tuning
 from ocx_type2_wav_sim import Decoder, DecoderParams, Encoder, EncoderParams, PROFILE_PATH, ensure_stereo
 
 
@@ -187,6 +187,12 @@ def test_detector_study_honors_requested_mode():
         harness_module.evaluate_candidate = original_eval
         harness_module.build_cases = original_cases
     assert seen_modes == ["roundtrip", "roundtrip"]
+
+
+def test_profile_set_report_emits_all_slots():
+    report = evaluate_profile_set(PROFILE_PATH, fs=4000, mode="decode", reference_dir=ROOT / "refs", profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
+    assert set(report["profiles"]) == {"single_profile", "lw1_profile", "lw2_profile", "common_profile"}
+    assert "per_profile" in report
 
 
 def test_profile_and_firmware_defaults_are_synced():

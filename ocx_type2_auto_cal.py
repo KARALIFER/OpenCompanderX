@@ -104,8 +104,8 @@ def update_block_tracker(state: BlockTracker, accepted: bool) -> BlockTracker:
 
 
 def has_enough_measurement(state: BlockTracker, elapsed_ms: int) -> bool:
-    enough_segments = state.tone_segments >= 2 or (state.tone_segments >= 1 and state.current_segment_valid_blocks >= 150)
-    return enough_segments and state.tone_blocks >= 320 and state.blocks_seen >= 360 and elapsed_ms >= 70_000
+    enough_segments = state.tone_segments >= 3 or (state.tone_segments >= 2 and state.current_segment_valid_blocks >= 240)
+    return enough_segments and state.tone_blocks >= 700 and state.blocks_seen >= 780 and elapsed_ms >= 180_000
 
 
 @dataclass(frozen=True)

@@ -7,13 +7,13 @@
 Die Messkassette wird nur verwendet, wenn neu kalibriert werden soll (z. B. anderes Deck/Servicezustand). Für normale Musikbänder bleibt die gelockte Kalibrierung aktiv.
 
 ## 3) Empfohlene Struktur (verbindlich)
-- 5 s silence
-- 30 s 1 kHz
-- 3 s silence
-- 30 s 1 kHz
-- 3 s silence
-- 30 s 1 kHz
-- 5 s silence
+- 5 s silence (optional)
+- 60 s 1 kHz
+- ~3 s silence
+- 60 s 1 kHz
+- ~3 s silence
+- 60 s 1 kHz
+- 5 s silence (optional)
 
 ## 4) Aufnahmeparameter
 - kein Fade
@@ -21,8 +21,10 @@ Die Messkassette wird nur verwendet, wenn neu kalibriert werden soll (z. B. ande
 - keine Pegeländerung zwischen Blöcken
 - dieselbe dbx-Type-II-Aufnahmekette wie bei echten Kassetten
 
-## 5) Start des AUTO_CAL-Modus
+## 5) Start des AUTO_CAL-Wizard-Modus
 - Serielle Konsole öffnen
+- Decktyp wählen: `1` (Single-LW) oder `2` (Dual-LW)
+- Bei Dual-LW aktives Laufwerk wählen: `[` = LW1, `]` = LW2
 - `l` senden (`start AUTO_CAL`)
 - Preset-Status mit `J` prüfen
 
@@ -44,7 +46,9 @@ Die Erkennung ist absichtlich tolerant gegen reale Deck-Abweichungen (Wow/Flutte
 - harte Reject-Gründe sichtbar, z. B. `reject_tone_too_weak`, `reject_unstable`, `reject_lr_mismatch`.
 
 Wichtig: `AUTO_CAL` lockt nicht mehr nach wenigen Sekunden.  
-Es werden längere Messfenster und mehrere valide Tonblöcke erwartet (3×30-s-Struktur mit kurzen Silences dazwischen toleriert).
+Es werden mehrere valide Segmente erwartet (Zielformat: 3×60 s mit ~3 s Pausen).
+Bei nur 2 validen Segmenten wird mit reduzierter Confidence gearbeitet.
+Bei nur 1 validem Segment erfolgt standardmäßig kein finaler Lock.
 
 ## 6b) Roh-Telemetrie
 - `J`: kompakter Status
