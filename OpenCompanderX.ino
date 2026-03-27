@@ -37,11 +37,27 @@ static constexpr float kMaxBoostDb = 9.0f;
 static constexpr float kMaxCutDb = 24.0f;
 static constexpr float kAttackMs = 3.5f;
 static constexpr float kReleaseMs = 140.0f;
-static constexpr float kSidechainHpHz = 90.0f;
+static constexpr float kSidechainHpHz = 30.0f;
 static constexpr float kSidechainLpHz = 10000.0f;
 static constexpr float kSidechainShelfHz = 2800.0f;
 static constexpr float kSidechainShelfDb = 16.0f;
 static constexpr float kDetectorRmsMs = 8.0f;
+static constexpr bool  kAutoTrimEnabled = true;
+static constexpr float kAutoTrimMaxDb = 1.5f;
+static constexpr float kDropoutHoldMs = 0.0f;
+static constexpr float kDropoutHfDropDb = 10.0f;
+static constexpr float kDropoutLevelDropDb = 9.0f;
+static constexpr bool  kSaturationSoftfail = false;
+static constexpr float kSaturationThreshold = 0.90f;
+static constexpr float kSaturationKneeDb = 4.0f;
+static constexpr bool  kRestorationAutoTrimEnabled = true;
+static constexpr float kRestorationAutoTrimMaxDb = 2.0f;
+static constexpr float kRestorationDropoutHoldMs = 12.0f;
+static constexpr float kRestorationDropoutHfDropDb = 8.0f;
+static constexpr float kRestorationDropoutLevelDropDb = 7.0f;
+static constexpr bool  kRestorationSaturationSoftfail = true;
+static constexpr float kRestorationSaturationThreshold = 0.86f;
+static constexpr float kRestorationSaturationKneeDb = 6.0f;
 static constexpr float kDeemphHz = 1850.0f;
 static constexpr float kDeemphDb = -6.0f;
 static constexpr float kSoftClipDrive = 1.08f;
@@ -281,6 +297,14 @@ public:
   void setSoftClipDrive(float v)     { softClipDrive = clampf(v, 1.0f, 2.0f); }
   void setDcBlockHz(float hz)        { dcBlockHz = clampf(hz, 1.0f, 40.0f); recalcDcBlockers(); }
   void setHeadroomDb(float db)       { headroomDb = clampf(db, 0.0f, 6.0f); headroomGain = dbToLin(-headroomDb); }
+  void setAutoTrimEnabled(bool v)       { autoTrimEnabled = v; }
+  void setAutoTrimMaxDb(float db)       { autoTrimMaxDb = clampf(fabsf(db), 0.0f, 6.0f); }
+  void setDropoutHoldMs(float ms)       { dropoutHoldMs = clampf(ms, 0.0f, 40.0f); recalcDetector(); }
+  void setDropoutHfDropDb(float db)     { dropoutHfDropDb = clampf(db, 1.0f, 24.0f); }
+  void setDropoutLevelDropDb(float db)  { dropoutLevelDropDb = clampf(db, 1.0f, 24.0f); }
+  void setSaturationSoftfail(bool v)    { saturationSoftfail = v; }
+  void setSaturationThreshold(float v)  { saturationThreshold = clampf(v, 0.70f, 0.99f); }
+  void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
   void setDecoderOperatingMode(DecoderOperatingMode m) { decoderMode = m; recalcDetector(); }
 
   float getInputTrimDb() const       { return inputTrimDb; }
@@ -299,6 +323,14 @@ public:
   float getSoftClipDrive() const     { return softClipDrive; }
   float getDcBlockHz() const         { return dcBlockHz; }
   float getHeadroomDb() const        { return headroomDb; }
+  bool getAutoTrimEnabled() const    { return autoTrimEnabled; }
+  float getAutoTrimMaxDb() const     { return autoTrimMaxDb; }
+  float getDropoutHoldMs() const     { return dropoutHoldMs; }
+  float getDropoutHfDropDb() const   { return dropoutHfDropDb; }
+  float getDropoutLevelDropDb() const { return dropoutLevelDropDb; }
+  bool getSaturationSoftfail() const { return saturationSoftfail; }
+  float getSaturationThreshold() const { return saturationThreshold; }
+  float getSaturationKneeDb() const  { return saturationKneeDb; }
   DecoderOperatingMode getDecoderOperatingMode() const { return decoderMode; }
 
   bool hasInputClip() const          { return inputClipFlag; }
@@ -402,6 +434,14 @@ private:
   float encLinkedRms2 = 1.0e-9f;
   DecoderOperatingMode decoderMode = DECODER_STRICT_COMPATIBLE;
   float autoTrimDb = 0.0f;
+  bool autoTrimEnabled = OCXProfile::kAutoTrimEnabled;
+  float autoTrimMaxDb = OCXProfile::kAutoTrimMaxDb;
+  float dropoutHoldMs = OCXProfile::kDropoutHoldMs;
+  float dropoutHfDropDb = OCXProfile::kDropoutHfDropDb;
+  float dropoutLevelDropDb = OCXProfile::kDropoutLevelDropDb;
+  bool saturationSoftfail = OCXProfile::kSaturationSoftfail;
+  float saturationThreshold = OCXProfile::kSaturationThreshold;
+  float saturationKneeDb = OCXProfile::kSaturationKneeDb;
   float autoTrimCoeff = 0.0f;
   uint16_t dropoutHoldSamples = 0;
   uint16_t dropoutHoldCounter = 0;
@@ -484,7 +524,7 @@ private:
     releaseCoeff = expf(-1.0f / (OCXProfile::kFs * releaseMs * 0.001f));
     rmsCoeff = expf(-1.0f / (OCXProfile::kFs * detectorRmsMs * 0.001f));
     autoTrimCoeff = expf(-1.0f / (OCXProfile::kFs * 0.8f));
-    dropoutHoldSamples = (decoderMode == DECODER_RESTORATION) ? 529 : 0; // ~12ms @44.1k
+    dropoutHoldSamples = (uint16_t)clampf(dropoutHoldMs * OCXProfile::kFs * 0.001f, 0.0f, 4095.0f);
   }
   void recalcEncoderDetector() {
     encAttackCoeff = expf(-1.0f / (OCXProfile::kFs * encAttackMs * 0.001f));
@@ -539,10 +579,10 @@ private:
     const float coeff = (linkedRms2 > linkedEnv2) ? attackCoeff : releaseCoeff;
     linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedRms2);
     const float env = sqrtf(linkedEnv2 + 1.0e-12f);
-    if (decoderMode != DECODER_CONTROLLED_RECORD) {
+    if (autoTrimEnabled && decoderMode != DECODER_CONTROLLED_RECORD) {
       const float envDb = linToDb(env);
       if (envDb < -36.0f) {
-        const float target = clampf((referenceDb - envDb) * 0.12f, -1.5f, 1.5f);
+        const float target = clampf((referenceDb - envDb) * 0.12f, -autoTrimMaxDb, autoTrimMaxDb);
         autoTrimDb = sanitizef(autoTrimCoeff * autoTrimDb + (1.0f - autoTrimCoeff) * target);
       }
     }
@@ -553,15 +593,15 @@ private:
       const float inRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
       const float hfDropDb = linToDb(prevScRms / fmaxf(scRms, 1.0e-12f));
       const float levelDropDb = linToDb(prevScRms / fmaxf(inRms, 1.0e-12f));
-      if (hfDropDb > 8.0f && levelDropDb > 7.0f) dropoutHoldCounter = dropoutHoldSamples;
+      if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb) dropoutHoldCounter = dropoutHoldSamples;
       if (dropoutHoldCounter > 0) {
         --dropoutHoldCounter;
         gainDb = 0.8f * prevGainDb + 0.2f * gainDb;
       }
       const float peak = fmaxf(fabsf(xL), fabsf(xR));
-      if (peak > 0.86f && gainDb > 0.0f) {
-        const float over = clampf((peak - 0.86f) / 0.14f, 0.0f, 1.0f);
-        gainDb -= over * 6.0f;
+      if (saturationSoftfail && peak > saturationThreshold && gainDb > 0.0f) {
+        const float over = clampf((peak - saturationThreshold) / fmaxf(1.0e-4f, 1.0f - saturationThreshold), 0.0f, 1.0f);
+        gainDb -= over * saturationKneeDb;
       }
       prevScRms = scRms;
     } else {
@@ -1092,6 +1132,28 @@ bool profileSelectionValid(ProfileSelect p) {
   return (p == PROFILE_LW2) ? (profileStore.lw2Valid != 0) : (profileStore.lw1Valid != 0);
 }
 
+void applyDecoderOperatingModeTuning() {
+  if (decoderOperatingMode == DECODER_RESTORATION) {
+    ocx.setAutoTrimEnabled(OCXProfile::kRestorationAutoTrimEnabled);
+    ocx.setAutoTrimMaxDb(OCXProfile::kRestorationAutoTrimMaxDb);
+    ocx.setDropoutHoldMs(OCXProfile::kRestorationDropoutHoldMs);
+    ocx.setDropoutHfDropDb(OCXProfile::kRestorationDropoutHfDropDb);
+    ocx.setDropoutLevelDropDb(OCXProfile::kRestorationDropoutLevelDropDb);
+    ocx.setSaturationSoftfail(OCXProfile::kRestorationSaturationSoftfail);
+    ocx.setSaturationThreshold(OCXProfile::kRestorationSaturationThreshold);
+    ocx.setSaturationKneeDb(OCXProfile::kRestorationSaturationKneeDb);
+  } else {
+    ocx.setAutoTrimEnabled(OCXProfile::kAutoTrimEnabled);
+    ocx.setAutoTrimMaxDb(OCXProfile::kAutoTrimMaxDb);
+    ocx.setDropoutHoldMs(OCXProfile::kDropoutHoldMs);
+    ocx.setDropoutHfDropDb(OCXProfile::kDropoutHfDropDb);
+    ocx.setDropoutLevelDropDb(OCXProfile::kDropoutLevelDropDb);
+    ocx.setSaturationSoftfail(OCXProfile::kSaturationSoftfail);
+    ocx.setSaturationThreshold(OCXProfile::kSaturationThreshold);
+    ocx.setSaturationKneeDb(OCXProfile::kSaturationKneeDb);
+  }
+}
+
 void applyEffectiveDecoderSettings() {
   const float effectiveTrim = clampf(staticOutputTrimDb + guardTrimOffsetDb, -18.0f, 18.0f);
   const float effectiveHeadroom = clampf(staticHeadroomDb + guardHeadroomOffsetDb, 0.0f, 6.0f);
@@ -1101,6 +1163,7 @@ void applyEffectiveDecoderSettings() {
   ocx.setHeadroomDb(effectiveHeadroom);
   ocx.setMaxBoostDb(effectiveMaxBoost);
   ocx.setDecoderOperatingMode(decoderOperatingMode);
+  applyDecoderOperatingModeTuning();
 }
 
 const char* autoCalStateLabel(uint8_t s) {
@@ -2089,6 +2152,12 @@ void printStatus() {
   Serial.print(F("Attack: ")); Serial.print(ocx.getAttackMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Release: ")); Serial.print(ocx.getReleaseMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Detector RMS window: ")); Serial.print(ocx.getDetectorRmsMs(), 2); Serial.println(F(" ms"));
+  Serial.print(F("Auto-trim enabled/max: ")); Serial.print(ocx.getAutoTrimEnabled() ? F("YES") : F("NO")); Serial.print(F(" / ")); Serial.print(ocx.getAutoTrimMaxDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Dropout hold/hf/level: ")); Serial.print(ocx.getDropoutHoldMs(), 2); Serial.print(F(" ms / "));
+  Serial.print(ocx.getDropoutHfDropDb(), 2); Serial.print(F(" dB / "));
+  Serial.print(ocx.getDropoutLevelDropDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Saturation soft-fail thr/knee: ")); Serial.print(ocx.getSaturationSoftfail() ? F("ON") : F("OFF")); Serial.print(F(" / "));
+  Serial.print(ocx.getSaturationThreshold(), 3); Serial.print(F(" / ")); Serial.print(ocx.getSaturationKneeDb(), 2); Serial.println(F(" dB"));
   Serial.print(F("Sidechain HP: ")); Serial.print(ocx.getSidechainHpHz(), 1); Serial.println(F(" Hz"));
   Serial.print(F("Sidechain LP: ")); Serial.print(ocx.getSidechainLpHz(), 1); Serial.println(F(" Hz"));
   Serial.print(F("Sidechain shelf: ")); Serial.print(ocx.getSidechainShelfDb(), 1); Serial.print(F(" dB @ ")); Serial.print(ocx.getSidechainShelfHz(), 0); Serial.println(F(" Hz"));

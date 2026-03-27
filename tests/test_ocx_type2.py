@@ -240,6 +240,33 @@ def test_dual_lw_common_profile_becomes_default_and_is_persisted():
     assert "persistSettings();" in body
 
 
+def test_firmware_decoder_modes_and_type2_sidechain_window_are_present():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "enum DecoderOperatingMode : uint8_t" in ino
+    assert "DECODER_STRICT_COMPATIBLE" in ino
+    assert "DECODER_RESTORATION" in ino
+    assert "DECODER_CONTROLLED_RECORD" in ino
+    assert "static constexpr float kSidechainHpHz = 30.0f;" in ino
+    assert "static constexpr float kSidechainLpHz = 10000.0f;" in ino
+    assert "ocx.setSidechainHpHz(OCXProfile::kSidechainHpHz);" in ino
+    assert "ocx.setSidechainLpHz(OCXProfile::kSidechainLpHz);" in ino
+
+
+def test_firmware_restoration_parameters_are_wired_without_magic_thresholds():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "dropout_hf_drop_db" in (ROOT / "ocx_type2_profile.json").read_text()
+    assert "dropout_level_drop_db" in (ROOT / "ocx_type2_profile.json").read_text()
+    assert "saturation_threshold" in (ROOT / "ocx_type2_profile.json").read_text()
+    assert "saturation_knee_db" in (ROOT / "ocx_type2_profile.json").read_text()
+    assert "if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb)" in ino
+    assert "if (saturationSoftfail && peak > saturationThreshold && gainDb > 0.0f)" in ino
+    assert "gainDb -= over * saturationKneeDb;" in ino
+    assert "ocx.setDropoutHfDropDb(OCXProfile::kRestorationDropoutHfDropDb);" in ino
+    assert "ocx.setDropoutLevelDropDb(OCXProfile::kRestorationDropoutLevelDropDb);" in ino
+    assert "ocx.setSaturationThreshold(OCXProfile::kRestorationSaturationThreshold);" in ino
+    assert "ocx.setSaturationKneeDb(OCXProfile::kRestorationSaturationKneeDb);" in ino
+
+
 def test_segment_meta_collector_keeps_real_per_segment_values():
     c = SegmentMetaCollector()
     c.add_segment(duration_blocks=410, peak_avg=0.41, tone_avg=0.73, peak_spread=0.03)
