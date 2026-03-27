@@ -28,8 +28,14 @@ The main purpose of this repository is practical dbx Type II–style cassette de
    ```bash
    pio run -e teensy41
    ```
-2. Upload using your normal Teensy workflow (PlatformIO upload target or Teensy Loader button flow).
-3. Open serial monitor after upload.
+2. Upload firmware (or use Teensy Loader button flow):
+   ```bash
+   pio run -e teensy41 -t upload
+   ```
+3. Open serial monitor:
+   ```bash
+   pio device monitor
+   ```
 
 ### Option B: Arduino IDE + Teensy Loader
 
@@ -41,7 +47,7 @@ The main purpose of this repository is practical dbx Type II–style cassette de
 
 ## First boot / first real use
 
-After flashing, use this minimal path:
+After flashing and opening serial monitor, use this minimal path:
 
 1. Send `0` to load factory preset.
 2. Send `p` for full status.
