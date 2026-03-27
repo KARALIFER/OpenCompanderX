@@ -47,15 +47,16 @@ Simulator/harness tools exist for technical validation, but they are not the mai
 ### Step-by-step
 
 1. Install Arduino IDE.
-2. Install Teensy board support so Teensy boards are available in Arduino IDE.
-3. Open `ocx_type2_teensy41_decoder.ino`.
-4. In Arduino IDE, set:
+2. Open Arduino IDE Boards/Package Manager and add/install **Teensy board support** (PJRC / Teensyduino integration).
+3. Confirm that the **Teensy package** is installed and that `Teensy 4.1` appears as a selectable board.
+4. Open `ocx_type2_teensy41_decoder.ino` (from the repository checkout, in its sketch folder).
+5. In Arduino IDE, set:
    - **Board:** `Teensy 4.1`
    - **USB Type:** `Serial`
-5. Click **Verify/Compile**.
-6. Click **Upload**.
-7. If upload does not start automatically, open Teensy Loader and press the Teensy **Program** button once.
-8. Open the Arduino IDE **Serial Monitor** after upload.
+6. Click **Verify/Compile**.
+7. Click **Upload**.
+8. If upload does not start automatically, open Teensy Loader and press the Teensy **Program** button once.
+9. Open the Arduino IDE **Serial Monitor** after upload.
 
 ## Alternative for advanced users: PlatformIO
 
