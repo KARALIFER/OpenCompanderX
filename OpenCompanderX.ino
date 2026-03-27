@@ -1447,7 +1447,7 @@ void printHelp() {
   Serial.println(F("  n  : print signal diagnostics snapshot (input/output/gain activity)"));
   Serial.println(F("  N  : reset signal diagnostics counters"));
   Serial.println(F("  x  : clear clip flags"));
-  Serial.println(F("  v  : print NEW clip counts since last v/m/p call"));
+  Serial.println(F("  v  : print new clip counts since last v/m/p call"));
   Serial.println(F("  X  : clear clip flags + runtime counters + signal diagnostics + usage maxima"));
   Serial.println(F("  B  : reset DSP state"));
   Serial.println(F("  b  : toggle bypass"));
@@ -1686,8 +1686,8 @@ void printStatus() {
   Serial.print(F("Input clip count: ")); Serial.println(ocx.getInputClipCount());
   Serial.print(F("Output clip count: ")); Serial.println(ocx.getOutputClipCount());
   const ClipDelta delta = ocx.consumeClipDelta();
-  Serial.print(F("Input clip NEW since last report: ")); Serial.println(delta.inputNew);
-  Serial.print(F("Output clip NEW since last report: ")); Serial.println(delta.outputNew);
+  Serial.print(F("Input clip new since last report: ")); Serial.println(delta.inputNew);
+  Serial.print(F("Output clip new since last report: ")); Serial.println(delta.outputNew);
   Serial.print(F("Allocate fail count: ")); Serial.println(ocx.getAllocFailCount());
   printTelemetry();
 }
