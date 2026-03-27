@@ -4,6 +4,8 @@ OpenCompanderX is a **firmware-first project** for **Teensy 4.1 + SGTL5000** (Te
 
 Main goal: practical dbx Type II–style cassette decoding on **real hardware** with a clear workflow (flash firmware -> connect source -> check telemetry -> calibrate when needed -> run playback).
 
+If you just want to use OCX on your device, start with the **Windows quickstart** below; no developer workflow is required for that path.
+
 > This project is independent and is not affiliated with, endorsed by, or sponsored by dbx, HARMAN, or any trademark owner.
 
 ## What this project is
