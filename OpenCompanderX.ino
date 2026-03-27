@@ -901,6 +901,10 @@ uint8_t wizardValidSegments = 0;
 uint8_t wizardCurrentSegment = 0;
 bool wizardInTone = false;
 uint16_t wizardPauseBlocks = 0;
+uint16_t autoSegDurationBlocks[kExpectedSegments] = {0, 0, 0};
+float autoSegPeakAvg[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
+float autoSegToneAvg[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
+float autoSegPeakSpread[kExpectedSegments] = {0.0f, 0.0f, 0.0f};
 
 struct PersistSettings {
   uint32_t magic;
@@ -1199,7 +1203,9 @@ void beginAutoCal() {
   Serial.print(F("[WIZARD] deck_type=")); Serial.print(deckTypeLabel(deckType));
   Serial.print(F(" expected_transport=")); Serial.println(transportLabel(wizardExpectedTransport));
   if (deckType == DECK_DUAL_LW) {
-    Serial.println(F("[WIZARD] Step 1/2: Bitte Deck auf LW1 stellen und 1-kHz Messton starten (3x60s, ~3s Pause)."));
+    Serial.print(F("[WIZARD] Dual-LW Messung fuer "));
+    Serial.print(transportLabel(wizardExpectedTransport));
+    Serial.println(F(": bitte dieses Laufwerk am Deck waehlen und 1-kHz Messton starten (3x60s, ~3s Pause)."));
   } else {
     Serial.println(F("[WIZARD] Step 1/1: Single-LW Messung starten (1-kHz 3x60s, ~3s Pause)."));
   }
@@ -1264,6 +1270,12 @@ void beginAutoCal() {
   wizardInTone = false;
   wizardPauseBlocks = 0;
   segAccum = SegmentAccumulator{};
+  for (uint8_t i = 0; i < kExpectedSegments; ++i) {
+    autoSegDurationBlocks[i] = 0;
+    autoSegPeakAvg[i] = 0.0f;
+    autoSegToneAvg[i] = 0.0f;
+    autoSegPeakSpread[i] = 0.0f;
+  }
 }
 
 void computeAutoCalResult() {
@@ -1312,7 +1324,10 @@ void computeAutoCalResult() {
   meta.timestampMs = millis();
   meta.persistVersion = kSettingsVersion;
   for (uint8_t i = 0; i < kExpectedSegments; ++i) {
-    meta.segmentDurationSec[i] = (uint16_t)((uint32_t)autoCurrentSegmentBlocks * kBlockPeriodMs / 1000UL);
+    meta.segmentDurationSec[i] = (uint16_t)((uint32_t)autoSegDurationBlocks[i] * kBlockPeriodMs / 1000UL);
+    meta.segmentPeak[i] = autoSegPeakAvg[i];
+    meta.segmentTone[i] = autoSegToneAvg[i];
+    meta.segmentSpread[i] = autoSegPeakSpread[i];
   }
 
   if (deckType == DECK_SINGLE_LW) {
@@ -1520,17 +1535,36 @@ void updateAutoCal() {
         ++autoToneBlocks;
         ++autoCurrentSegmentValidBlocks;
         ++autoCurrentSegmentBlocks;
+        ++segAccum.blocksSeen;
+        ++segAccum.validBlocks;
         autoSilenceBlocks = 0;
         wizardPauseBlocks = 0;
         wizardInTone = true;
-        autoPeakAccum += 0.5f * (autoPeakL + autoPeakR);
+        const float segPeak = 0.5f * (autoPeakL + autoPeakR);
+        autoPeakAccum += segPeak;
         autoRmsAccum += 0.5f * (autoRmsProxyL + autoRmsProxyR);
-        autoToneAccum += fmaxf(autoToneMetricL, autoToneMetricR);
+        const float segTone = fmaxf(autoToneMetricL, autoToneMetricR);
+        autoToneAccum += segTone;
+        segAccum.peakSum += segPeak;
+        segAccum.peakSqSum += segPeak * segPeak;
+        segAccum.toneSum += segTone;
       } else {
         ++autoSilenceBlocks;
         ++wizardPauseBlocks;
         if (autoCurrentSegmentBlocks > 0 && autoSilenceBlocks >= kPauseDetectBlocks) {
+          const uint8_t segIdx = wizardDetectedSegments;
           ++wizardDetectedSegments;
+          if (segIdx < kExpectedSegments) {
+            autoSegDurationBlocks[segIdx] = autoCurrentSegmentBlocks;
+            if (segAccum.validBlocks > 0) {
+              const float invN = 1.0f / (float)segAccum.validBlocks;
+              const float peakMean = segAccum.peakSum * invN;
+              const float peakVar = fmaxf(0.0f, segAccum.peakSqSum * invN - peakMean * peakMean);
+              autoSegPeakAvg[segIdx] = peakMean;
+              autoSegToneAvg[segIdx] = segAccum.toneSum * invN;
+              autoSegPeakSpread[segIdx] = sqrtf(peakVar);
+            }
+          }
           if (autoCurrentSegmentValidBlocks >= kMinValidBlocksPerSegment) {
             ++autoToneSegments;
             ++wizardValidSegments;
@@ -1538,8 +1572,33 @@ void updateAutoCal() {
           autoCurrentSegmentBlocks = 0;
           autoCurrentSegmentValidBlocks = 0;
           wizardInTone = false;
+          segAccum = SegmentAccumulator{};
         }
       }
+    }
+    const uint16_t targetBlocks = (uint16_t)(kSegmentTargetMs / kBlockPeriodMs);
+    if (wizardInTone && wizardDetectedSegments < kExpectedSegments && autoCurrentSegmentBlocks >= targetBlocks) {
+      const uint8_t segIdx = wizardDetectedSegments;
+      ++wizardDetectedSegments;
+      if (segIdx < kExpectedSegments) {
+        autoSegDurationBlocks[segIdx] = autoCurrentSegmentBlocks;
+        if (segAccum.validBlocks > 0) {
+          const float invN = 1.0f / (float)segAccum.validBlocks;
+          const float peakMean = segAccum.peakSum * invN;
+          const float peakVar = fmaxf(0.0f, segAccum.peakSqSum * invN - peakMean * peakMean);
+          autoSegPeakAvg[segIdx] = peakMean;
+          autoSegToneAvg[segIdx] = segAccum.toneSum * invN;
+          autoSegPeakSpread[segIdx] = sqrtf(peakVar);
+        }
+      }
+      if (autoCurrentSegmentValidBlocks >= kMinValidBlocksPerSegment) {
+        ++autoToneSegments;
+        ++wizardValidSegments;
+      }
+      autoCurrentSegmentBlocks = 0;
+      autoCurrentSegmentValidBlocks = 0;
+      wizardInTone = false;
+      segAccum = SegmentAccumulator{};
     }
     const bool enoughSegments = (wizardValidSegments >= 3) || (wizardDetectedSegments >= 3 && wizardValidSegments >= 2);
     const bool enoughDuration = (now - autoStateEnterMs) >= (kSegmentTargetMs * 3UL + kPauseTargetMs * 2UL);
@@ -2052,9 +2111,9 @@ void maybePrintAutoLockSummary() {
   printAutoCalStatus();
   printAutoCalLockedValues();
   if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW1) {
-    Serial.println(F("[WIZARD] Step 1/2 abgeschlossen (LW1). Jetzt Deck auf LW2 stellen und 'l' erneut starten."));
+    Serial.println(F("[WIZARD] Messung fuer LW1 abgeschlossen. Fuer LW2 Deck umschalten (']') und 'l' erneut starten."));
   } else if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW2) {
-    Serial.println(F("[WIZARD] Step 2/2 abgeschlossen (LW2). Optional: common_profile per '}' aktivieren."));
+    Serial.println(F("[WIZARD] Messung fuer LW2 abgeschlossen. Optional: common_profile per '}' aktivieren."));
   } else {
     Serial.println(F("[WIZARD] Single-LW Messung abgeschlossen."));
   }

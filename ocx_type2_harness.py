@@ -1093,10 +1093,14 @@ def run_detector_study(profile_path: Path, fs: int, mode: str = "decode", preset
 
 def evaluate_profile_set(profile_path: Path, fs: int, mode: str, reference_dir: Path, profiles: list[str]) -> dict[str, object]:
     case_specs = build_case_specs(fs, reference_dir)
+    profile_doc = json.loads(profile_path.read_text())
+    slot_map = profile_doc.get("profile_slots", {}).get("decoder", {})
     per_profile: dict[str, object] = {}
     for profile_name in profiles:
-        preset_name = "auto_cal" if profile_name != "single_profile" else "universal"
-        rows = evaluate_candidate(profile_path, fs, case_specs, mode=mode, preset=preset_name)
+        slot_overrides = slot_map.get(profile_name)
+        if not isinstance(slot_overrides, dict):
+            raise KeyError(f"Missing decoder slot definition for '{profile_name}' in profile_slots.decoder")
+        rows = evaluate_candidate(profile_path, fs, case_specs, mode=mode, preset="auto_cal", overrides=slot_overrides)
         per_profile[profile_name] = {"summary": evaluate_scores(rows), "cases": len(rows)}
     return {
         "mode": mode,

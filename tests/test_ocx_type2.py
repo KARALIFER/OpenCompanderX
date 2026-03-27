@@ -14,10 +14,13 @@ if str(ROOT) not in sys.path:
 import ocx_type2_harness as harness_module
 from ocx_type2_auto_cal import (
     BlockTracker,
+    SegmentMetaCollector,
     ToneTelemetry,
     decide_candidate,
     evaluate_tone_acceptance,
     has_enough_measurement,
+    profile_slot_for_transport,
+    resolve_wizard_expected_transport,
     update_block_tracker,
 )
 from ocx_type2_harness import build_case_specs, compare, evaluate_profile_set, evaluate_scores, run_detector_study, run_tuning
@@ -193,9 +196,16 @@ def test_profile_set_report_emits_all_slots():
     report = evaluate_profile_set(PROFILE_PATH, fs=4000, mode="decode", reference_dir=ROOT / "refs", profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
     assert set(report["profiles"]) == {"single_profile", "lw1_profile", "lw2_profile", "common_profile"}
     assert "per_profile" in report
+    totals = [report["per_profile"][slot]["summary"]["score_total"] for slot in report["profiles"]]
+    assert len(set(totals)) > 1
 
 
 def test_dual_lw_autocal_keeps_selected_transport_and_slot_mapping():
+    assert resolve_wizard_expected_transport("DUAL_LW", "LW2") == "LW2"
+    assert profile_slot_for_transport("DUAL_LW", "LW2") == "lw2_profile"
+    assert resolve_wizard_expected_transport("SINGLE_LW", "LW2") == "LW1"
+    assert profile_slot_for_transport("SINGLE_LW", "LW2") == "single_profile"
+
     ino = (ROOT / "OpenCompanderX.ino").read_text()
     begin_body = re.search(r"void beginAutoCal\(\)\s*\{(.+?)\n\}", ino, re.S)
     assert begin_body is not None
@@ -208,6 +218,25 @@ def test_dual_lw_autocal_keeps_selected_transport_and_slot_mapping():
     # Slot mapping still depends on wizardExpectedTransport, so LW2 runs map to lw2Profile.
     assert "if (wizardExpectedTransport == TRANSPORT_LW1)" in ino
     assert "profileStore.lw2Profile = p;" in ino
+
+
+def test_segment_meta_collector_keeps_real_per_segment_values():
+    c = SegmentMetaCollector()
+    c.add_segment(duration_blocks=410, peak_avg=0.41, tone_avg=0.73, peak_spread=0.03)
+    c.add_segment(duration_blocks=405, peak_avg=0.40, tone_avg=0.72, peak_spread=0.02)
+    c.add_segment(duration_blocks=399, peak_avg=0.39, tone_avg=0.71, peak_spread=0.025)
+    assert c.durations_blocks == [410, 405, 399]
+    assert c.peak_avg == [0.41, 0.40, 0.39]
+    assert c.tone_avg == [0.73, 0.72, 0.71]
+    assert c.peak_spread == [0.03, 0.02, 0.025]
+
+
+def test_firmware_meta_uses_per_segment_arrays_not_live_counter():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "meta.segmentDurationSec[i] = (uint16_t)((uint32_t)autoSegDurationBlocks[i] * kBlockPeriodMs / 1000UL);" in ino
+    assert "meta.segmentPeak[i] = autoSegPeakAvg[i];" in ino
+    assert "meta.segmentTone[i] = autoSegToneAvg[i];" in ino
+    assert "meta.segmentSpread[i] = autoSegPeakSpread[i];" in ino
 
 
 def test_profile_and_firmware_defaults_are_synced():

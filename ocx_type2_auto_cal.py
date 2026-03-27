@@ -108,6 +108,45 @@ def has_enough_measurement(state: BlockTracker, elapsed_ms: int) -> bool:
     return enough_segments and state.tone_blocks >= 700 and state.blocks_seen >= 780 and elapsed_ms >= 180_000
 
 
+def resolve_wizard_expected_transport(deck_type: str, active_transport: str) -> str:
+    if deck_type == "SINGLE_LW":
+        return "LW1"
+    return "LW2" if active_transport == "LW2" else "LW1"
+
+
+def profile_slot_for_transport(deck_type: str, expected_transport: str) -> str:
+    if deck_type == "SINGLE_LW":
+        return "single_profile"
+    return "lw2_profile" if expected_transport == "LW2" else "lw1_profile"
+
+
+@dataclass
+class SegmentMetaCollector:
+    max_segments: int = 3
+    durations_blocks: list[int] | None = None
+    peak_avg: list[float] | None = None
+    tone_avg: list[float] | None = None
+    peak_spread: list[float] | None = None
+
+    def __post_init__(self) -> None:
+        if self.durations_blocks is None:
+            self.durations_blocks = []
+        if self.peak_avg is None:
+            self.peak_avg = []
+        if self.tone_avg is None:
+            self.tone_avg = []
+        if self.peak_spread is None:
+            self.peak_spread = []
+
+    def add_segment(self, duration_blocks: int, peak_avg: float, tone_avg: float, peak_spread: float) -> None:
+        if len(self.durations_blocks or []) >= self.max_segments:
+            return
+        self.durations_blocks.append(int(duration_blocks))
+        self.peak_avg.append(float(peak_avg))
+        self.tone_avg.append(float(tone_avg))
+        self.peak_spread.append(float(peak_spread))
+
+
 @dataclass(frozen=True)
 class CandidateMetrics:
     output_clip_count: float
