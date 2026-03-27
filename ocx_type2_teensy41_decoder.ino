@@ -764,6 +764,9 @@ uint16_t guardWindowNearLimit10s = 0;
 uint16_t guardWindowBoostClamp10s = 0;
 GuardState guardState = GUARD_IDLE;
 const char* guardReason = "boot";
+bool diagModeEnabled = false;
+unsigned long diagLastPrintMs = 0;
+static constexpr unsigned long kDiagIntervalMs = 3000UL;
 static constexpr float kGuardMinTrimOffsetDb = -3.0f;
 static constexpr float kGuardMaxTrimOffsetDb = 0.0f;
 static constexpr float kGuardMinHeadroomOffsetDb = 0.0f;
@@ -1440,6 +1443,7 @@ void printHelp() {
   Serial.println(F("  h  : help"));
   Serial.println(F("  p  : print status"));
   Serial.println(F("  m  : print compact telemetry status"));
+  Serial.println(F("  T  : toggle periodic DIAG mode (3 s compact runtime diagnostics)"));
   Serial.println(F("  n  : print signal diagnostics snapshot (input/output/gain activity)"));
   Serial.println(F("  N  : reset signal diagnostics counters"));
   Serial.println(F("  x  : clear clip flags"));
@@ -1478,6 +1482,9 @@ void printHelp() {
   Serial.println(F("  k  : cycle tone channel mode BOTH -> LEFT -> RIGHT"));
   Serial.println(F("  Detector: stereo-linked peak detector (shared gain on L/R)."));
   Serial.println(F("  Snapshot includes clamp-hit/near-limit stats for maxCut/maxBoost interpretation."));
+  Serial.println(F("  NOTE: AUTO_CAL uses a dbx Type II encoded 1 kHz tape reference as static base."));
+  Serial.println(F("  NOTE: 0/VU belongs to tape recording reference; playback level depends on deck/player output."));
+  Serial.println(F("  NOTE: 400 Hz tone is post-decoder workflow/output calibration, not the AUTO_CAL tape tone."));
   Serial.println(F("  NOTE: calibration tone is mixed post-decoder into the output path."));
   Serial.println(F("  NOTE: tone channel mode is an output routing test (not a decoder-input test)."));
   Serial.println();
@@ -1649,6 +1656,7 @@ void printStatus() {
   Serial.print(F("AUTO_CAL state: ")); Serial.println(autoCalStateLabel(autoCalState));
   Serial.print(F("AUTO_CAL values valid: ")); Serial.println(autoCalValid ? F("YES") : F("NO"));
   Serial.print(F("PLAYBACK_GUARD_DYNAMIC: ")); Serial.println(guardEnabled ? F("ON") : F("OFF"));
+  Serial.print(F("Periodic DIAG mode: ")); Serial.println(diagModeEnabled ? F("ON (3 s)") : F("OFF"));
   Serial.print(F("Guard state/reason: ")); Serial.print(guardStateLabel(guardState)); Serial.print(F(" / ")); Serial.println(guardReason);
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.println(F("Bypass mode keeps output protection (headroom + soft clip), not a hard relay bypass."));
@@ -1705,6 +1713,67 @@ void printAutoCalLockedValues() {
   Serial.print(F(" guardBoostCapReductionDb=")); Serial.println(guardBoostCapReductionDb, 2);
 }
 
+void printPeriodicDiagLine() {
+  const AudioEffectOCXType2CodecStereo::DiagSnapshot d = ocx.getSignalDiagnosticsSnapshot();
+  if (d.sampleCount == 0) {
+    Serial.println(F("[DIAG] waiting_for_signal samples=0"));
+    return;
+  }
+  const float n = (float)d.sampleCount;
+  const float inRmsL = sqrtf(d.inputSumSqL / n);
+  const float inRmsR = sqrtf(d.inputSumSqR / n);
+  const float outRmsL = sqrtf(d.outputSumSqL / n);
+  const float outRmsR = sqrtf(d.outputSumSqR / n);
+  const float inRmsMono = sqrtf(0.5f * (inRmsL * inRmsL + inRmsR * inRmsR));
+  const float outRmsMono = sqrtf(0.5f * (outRmsL * outRmsL + outRmsR * outRmsR));
+  const float inPeakMono = fmaxf(d.inputPeakL, d.inputPeakR);
+  const float outPeakMono = fmaxf(d.outputPeakL, d.outputPeakR);
+  const float outBalanceDb = linToDb(outRmsL) - linToDb(outRmsR);
+  const float outCorrNorm = d.outputCrossMean / fmaxf(outRmsL * outRmsR, 1.0e-9f);
+  const float decodeActivityPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.decoderActiveCount / (float)d.gainSampleCount) : 0.0f;
+  const float nearBoostPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.nearBoostCount / (float)d.gainSampleCount) : 0.0f;
+  const float boostClampPct = (d.gainSampleCount > 0) ? (100.0f * (float)d.clampBoostHitCount / (float)d.gainSampleCount) : 0.0f;
+  static float prevAvgGainDb = 0.0f;
+  static float prevOutRmsDb = -120.0f;
+  static float prevOutBalDb = 0.0f;
+  static bool hasPrev = false;
+  const float outRmsDb = linToDb(outRmsMono);
+  const float avgGainDb = d.avgGainDb;
+  const float driftGainDb = hasPrev ? (avgGainDb - prevAvgGainDb) : 0.0f;
+  const float driftOutRmsDb = hasPrev ? (outRmsDb - prevOutRmsDb) : 0.0f;
+  const float driftBalanceDb = hasPrev ? (outBalanceDb - prevOutBalDb) : 0.0f;
+  hasPrev = true;
+  prevAvgGainDb = avgGainDb;
+  prevOutRmsDb = outRmsDb;
+  prevOutBalDb = outBalanceDb;
+
+  Serial.print(F("[DIAG] samples=")); Serial.print(d.sampleCount);
+  Serial.print(F(" inPk=")); Serial.print(inPeakMono, 3);
+  Serial.print(F(" outPk=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" inRmsDb=")); Serial.print(linToDb(inRmsMono), 1);
+  Serial.print(F(" outRmsDb=")); Serial.print(outRmsDb, 1);
+  Serial.print(F(" gDb(last/min/max/avg)=")); Serial.print(d.lastGainDb, 2); Serial.print(F("/"));
+  Serial.print(d.minGainDb, 2); Serial.print(F("/")); Serial.print(d.maxGainDb, 2); Serial.print(F("/")); Serial.print(avgGainDb, 2);
+  Serial.print(F(" nearBoost%=")); Serial.print(nearBoostPct, 1);
+  Serial.print(F(" clampBoost%=")); Serial.print(boostClampPct, 1);
+  Serial.print(F(" clipOutNew=")); Serial.print(guardWindowClip1s);
+  Serial.print(F(" clipOutTotal=")); Serial.print(ocx.getOutputClipCount());
+  Serial.print(F(" guard=")); Serial.print(guardStateLabel(guardState)); Serial.print(F("/")); Serial.print(guardReason);
+  Serial.print(F(" gTrim=")); Serial.print(guardTrimOffsetDb, 2);
+  Serial.print(F(" gHead=")); Serial.print(guardHeadroomOffsetDb, 2);
+  Serial.print(F(" gBoost=")); Serial.print(guardBoostCapReductionDb, 2);
+  Serial.print(F(" baseRef=")); Serial.print(staticReferenceDb, 2);
+  Serial.print(F(" baseTrim=")); Serial.print(staticOutputTrimDb, 2);
+  Serial.print(F(" baseHead=")); Serial.print(staticHeadroomDb, 2);
+  Serial.print(F(" effTrim=")); Serial.print(ocx.getOutputTrimDb(), 2);
+  Serial.print(F(" effHead=")); Serial.print(ocx.getHeadroomDb(), 2);
+  Serial.print(F(" lrBalDb=")); Serial.print(outBalanceDb, 2);
+  Serial.print(F(" corr=")); Serial.print(outCorrNorm, 2);
+  Serial.print(F(" act%=")); Serial.print(decodeActivityPct, 1);
+  Serial.print(F(" drift(g/rms/bal)=")); Serial.print(driftGainDb, 2); Serial.print(F("/")); Serial.print(driftOutRmsDb, 2); Serial.print(F("/")); Serial.print(driftBalanceDb, 2);
+  Serial.print(F(" stableMs=")); Serial.println(millis() - guardLastStateChangeMs);
+}
+
 void resetWarningLatches() {
   lastWarnedInputClipCount = ocx.getInputClipCount();
   lastWarnedOutputClipCount = ocx.getOutputClipCount();
@@ -1718,6 +1787,13 @@ void maybePrintAutoLockSummary() {
   autoLockSummaryPending = false;
 }
 
+void maybePrintDiagPeriodic(unsigned long now) {
+  if (!diagModeEnabled) return;
+  if (now - diagLastPrintMs < kDiagIntervalMs) return;
+  diagLastPrintMs = now;
+  printPeriodicDiagLine();
+}
+
 void handleSerial() {
   while (Serial.available()) {
     const char c = Serial.read();
@@ -1725,6 +1801,12 @@ void handleSerial() {
       case 'h': printHelp(); break;
       case 'p': printStatus(); break;
       case 'm': printCompactTelemetryLine(); break;
+      case 'T':
+        diagModeEnabled = !diagModeEnabled;
+        diagLastPrintMs = 0;
+        Serial.print(F("[DIAG] periodic mode "));
+        Serial.println(diagModeEnabled ? F("ON (3 s)") : F("OFF"));
+        break;
       case 'n': printSignalDiagnosticsSnapshot(); break;
       case 'N': ocx.resetSignalDiagnostics(); break;
       case 'x': ocx.clearClipFlags(); resetWarningLatches(); break;
@@ -1759,12 +1841,12 @@ void handleSerial() {
       case '0': applyFactoryPreset(); break;
       case 'i': ocx.setInputTrimDb(ocx.getInputTrimDb() - 0.5f); break;
       case 'I': ocx.setInputTrimDb(ocx.getInputTrimDb() + 0.5f); break;
-      case 'o': ocx.setOutputTrimDb(ocx.getOutputTrimDb() - 0.5f); break;
-      case 'O': ocx.setOutputTrimDb(ocx.getOutputTrimDb() + 0.5f); break;
+      case 'o': staticOutputTrimDb = clampf(staticOutputTrimDb - 0.5f, -18.0f, 18.0f); applyEffectiveDecoderSettings(); break;
+      case 'O': staticOutputTrimDb = clampf(staticOutputTrimDb + 0.5f, -18.0f, 18.0f); applyEffectiveDecoderSettings(); break;
       case 's': ocx.setStrength(ocx.getStrength() - 0.05f); break;
       case 'S': ocx.setStrength(ocx.getStrength() + 0.05f); break;
-      case 'f': ocx.setReferenceDb(ocx.getReferenceDb() - 1.0f); break;
-      case 'F': ocx.setReferenceDb(ocx.getReferenceDb() + 1.0f); break;
+      case 'f': staticReferenceDb = clampf(staticReferenceDb - 1.0f, -40.0f, 0.0f); applyEffectiveDecoderSettings(); break;
+      case 'F': staticReferenceDb = clampf(staticReferenceDb + 1.0f, -40.0f, 0.0f); applyEffectiveDecoderSettings(); break;
       case 'a': ocx.setAttackMs(ocx.getAttackMs() - 0.5f); break;
       case 'A': ocx.setAttackMs(ocx.getAttackMs() + 0.5f); break;
       case 'r': ocx.setReleaseMs(ocx.getReleaseMs() - 5.0f); break;
@@ -1779,8 +1861,8 @@ void handleSerial() {
       case 'E': ocx.setDeemphDb(ocx.getDeemphDb() + 1.0f); break;
       case 'd': ocx.setDeemphHz(ocx.getDeemphHz() - 50.0f); break;
       case 'D': ocx.setDeemphHz(ocx.getDeemphHz() + 50.0f); break;
-      case 'g': ocx.setHeadroomDb(ocx.getHeadroomDb() - 0.5f); break;
-      case 'G': ocx.setHeadroomDb(ocx.getHeadroomDb() + 0.5f); break;
+      case 'g': staticHeadroomDb = clampf(staticHeadroomDb - 0.5f, 0.0f, 6.0f); applyEffectiveDecoderSettings(); break;
+      case 'G': staticHeadroomDb = clampf(staticHeadroomDb + 0.5f, 0.0f, 6.0f); applyEffectiveDecoderSettings(); break;
       case 'y': ocx.setDcBlockHz(ocx.getDcBlockHz() - 1.0f); break;
       case 'Y': ocx.setDcBlockHz(ocx.getDcBlockHz() + 1.0f); break;
       case 't': calToneEnabled = !calToneEnabled; updateTone(); break;
@@ -1839,6 +1921,7 @@ void loop() {
   updateAutoCal();
   maybePrintAutoLockSummary();
   updatePlaybackGuard();
+  maybePrintDiagPeriodic(millis());
   const unsigned long now = millis();
   if (now - lastStatusMs > 2000) {
     lastStatusMs = now;

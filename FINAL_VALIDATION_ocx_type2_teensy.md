@@ -118,6 +118,8 @@ Keine doppelte Type-II-Encode-Kette im Vergleichspfad aufbauen.
 
 - **Referenzkassette A (uncompanded):** Pegel-/Signalwegkontrolle
 - **Referenzkassette B (Type-II-encodiert):** Decoderabstimmung/Black-Box-Abgleich
+- AUTO_CAL-Basis: `AUTO_CAL uses a dbx Type II encoded 1 kHz reference tone from a measurement tape as a static calibration base.`
+- `0/VU` bleibt die **Aufnahme-Referenz** des Messbands; der Wiedergabepegel am Decoder-Eingang ist geräteabhängig.
 
 400-Hz-Ton ist nur Kalibrierhilfe, nicht alleiniger Decoderabgleich.
 Für das konkrete Nutzer-Setup (Mixtape Nerd + TEAC W-1200 + RTM-Band) wird
@@ -159,6 +161,7 @@ Optionale Hilfen (Play Trim, Azimuth Correction, Gap-Loss Compensation, EQ Conve
 
 `m` liefert dafür eine kompakte Einzeile (`[TLM] ...`) ohne seriellen Spam im Audiopfad.
 Die Zeile enthält explizit `cpuRes=OK/TIGHT`, `memRes=OK/TIGHT`, `bypass=ON/OFF` sowie letzten Gain/Env für schnelle Laufzeit- und Decoder-Interpretation.
+Zusätzlich gibt es einen periodischen DIAG-Modus (`T`, default AUS), der alle 3 s kompakte Laufzeitdiagnostik für Langzeitbeobachtung ausgibt.
 Zusätzlich liefert `n` einen Signaldiagnose-Snapshot (Input/Output L/R, Peak/RMS/Mean, Gain-Min/Max, Decode-Aktivität, L/R-Balance), wobei der aktuelle Bypass-Status ausdrücklich ausgegeben wird.
 Der Snapshot enthält jetzt außerdem:
 - RMS- und Peak-L/R-Balance getrennt für in/out
