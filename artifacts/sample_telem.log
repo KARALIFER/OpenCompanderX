@@ -1,0 +1,4 @@
+[DIAG] samples=256 guardState=IDLE clipOutNew=0 clipOutTotal=0 nearLimitPct10s=0.0 clampBoostPct10s=0.0
+[DIAG] samples=512 guardState=BRAKE clipOutNew=35 clipOutTotal=35 nearLimitPct10s=0.0 clampBoostPct10s=0.0
+[DIAG] samples=768 guardState=RELAX clipOutNew=0 clipOutTotal=35 nearLimitPct10s=0.0 clampBoostPct10s=0.0
+[TLM] cpuNow=10.5 outClipNew=0 clipOutTotal=35 guardState=IDLE nearLimitPct10s=0.0 clampBoostPct10s=0.0

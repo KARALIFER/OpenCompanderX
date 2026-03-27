@@ -238,7 +238,7 @@ static void designLowpass(Biquad &f, float fs, float hz, float q = 0.7071f) {
 class AudioEffectOCXType2CodecStereo : public AudioStream {
 public:
   enum Mode : uint8_t { MODE_DECODE = 0, MODE_ENCODE = 1 };
-  AudioEffectOCXType2CodecStereo() : AudioStream(2, inputQueueArray) { recalcAll(); resetState(); }
+  AudioEffectOCXType2CodecStereo() : AudioStream(2, inputQueueArray) { recalcAll(); resetState(); armOutputSoftStart(); }
   virtual void update(void);
   struct DiagSnapshot {
     float inputPeakL = 0.0f;
@@ -275,9 +275,9 @@ public:
     float highProxyMean = 0.0f;
   };
 
-  void setBypass(bool v)             { bypass = v; }
+  void setBypass(bool v)             { if (bypass != v) { bypass = v; armOutputSoftStart(); } }
   bool getBypass() const             { return bypass; }
-  void setMode(Mode m)               { mode = m; }
+  void setMode(Mode m)               { if (mode != m) { mode = m; armOutputSoftStart(); } }
   Mode getMode() const               { return mode; }
   void setInputTrimDb(float db)      { inputTrimDb = clampf(db, -18.0f, 18.0f); inputGain = dbToLin(inputTrimDb); }
   void setOutputTrimDb(float db)     { outputTrimDb = clampf(db, -18.0f, 18.0f); outputGain = dbToLin(outputTrimDb); }
@@ -305,7 +305,8 @@ public:
   void setSaturationSoftfail(bool v)    { saturationSoftfail = v; }
   void setSaturationThreshold(float v)  { saturationThreshold = clampf(v, 0.70f, 0.99f); }
   void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
-  void setDecoderOperatingMode(DecoderOperatingMode m) { decoderMode = m; recalcDetector(); }
+  void setDecoderOperatingMode(DecoderOperatingMode m) { if (decoderMode != m) armOutputSoftStart(); decoderMode = m; recalcDetector(); }
+  void armOutputSoftStart() { outputSoftStartSamplesRemaining = kOutputSoftStartSamples; }
 
   float getInputTrimDb() const       { return inputTrimDb; }
   float getOutputTrimDb() const      { return outputTrimDb; }
@@ -374,6 +375,7 @@ public:
     prevScRms = 1.0e-6f;
     prevInRms = 1.0e-6f;
     prevGainDb = 0.0f;
+    outputSoftStartSamplesRemaining = kOutputSoftStartSamples;
     noInterrupts();
     diagLastGainDb = 0.0f;
     diagLastEnvDb = -120.0f;
@@ -381,6 +383,8 @@ public:
   }
 
 private:
+  static constexpr float kOutputSoftStartMs = 80.0f;
+  static constexpr uint16_t kOutputSoftStartSamples = (uint16_t)(OCXProfile::kFs * (kOutputSoftStartMs * 0.001f));
   audio_block_t *inputQueueArray[2];
   Mode mode = MODE_DECODE;
   bool  bypass = false;
@@ -503,6 +507,7 @@ private:
   float diagHighProxySum = 0.0f;
   uint32_t lastReportedInputClipCount = 0;
   uint32_t lastReportedOutputClipCount = 0;
+  uint16_t outputSoftStartSamplesRemaining = 0;
 
   void recalcAll() {
     setInputTrimDb(inputTrimDb);
@@ -560,8 +565,8 @@ private:
     for (int ch = 0; ch < 2; ++ch) encDcBlock[ch].design(OCXProfile::kFs, encDcBlockHz);
   }
 
-  inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive) {
-    y = clampf(softClip(y * outGain * roomGain, clipDrive), -1.0f, 1.0f);
+  inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive, float softStartGain) {
+    y = clampf(softClip(y * outGain * roomGain * softStartGain, clipDrive), -1.0f, 1.0f);
     if (fabsf(y) > 0.98f) {
       outputClipFlag = true;
       ++outputClipCount;
@@ -569,7 +574,7 @@ private:
     return sanitizef(y);
   }
 
-  inline void processDecode(float xL, float xR, float &outL, float &outR) {
+  inline void processDecode(float xL, float xR, float &outL, float &outR, float softStartGain) {
     const float scL = scShelf[0].process(scLP[0].process(scHP[0].process(xL)));
     const float scR = scShelf[1].process(scLP[1].process(scHP[1].process(xR)));
     const float lowProxy = 0.5f * (fabsf(xL) + fabsf(xR));
@@ -625,11 +630,11 @@ private:
     ++diagDecodedSampleCount;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(deemph[0].process(xL * gainLin), outputGain, headroomGain, softClipDrive);
-    outR = finalizeOutput(deemph[1].process(xR * gainLin), outputGain, headroomGain, softClipDrive);
+    outL = finalizeOutput(deemph[0].process(xL * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
+    outR = finalizeOutput(deemph[1].process(xR * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
   }
 
-  inline void processEncode(float xL, float xR, float &outL, float &outR) {
+  inline void processEncode(float xL, float xR, float &outL, float &outR, float softStartGain) {
     const float scL = encScShelf[0].process(encScLP[0].process(encScHP[0].process(xL)));
     const float scR = encScShelf[1].process(encScLP[1].process(encScHP[1].process(xR)));
     const float linkedP = fmaxf(scL * scL, scR * scR);
@@ -642,11 +647,17 @@ private:
     diagLastGainDb = gainDb;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(encTilt[0].process(xL * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive);
-    outR = finalizeOutput(encTilt[1].process(xR * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive);
+    outL = finalizeOutput(encTilt[0].process(xL * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
+    outR = finalizeOutput(encTilt[1].process(xR * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
   }
 
   inline void processStereo(float inL, float inR, float &outL, float &outR) {
+    float softStartGain = 1.0f;
+    if (outputSoftStartSamplesRemaining > 0) {
+      const float t = 1.0f - ((float)outputSoftStartSamplesRemaining / (float)kOutputSoftStartSamples);
+      softStartGain = clampf(t * t, 0.0f, 1.0f);
+      --outputSoftStartSamplesRemaining;
+    }
     const float absInL = fabsf(inL);
     const float absInR = fabsf(inR);
     if (absInL > diagInputPeakL) diagInputPeakL = absInL;
@@ -673,8 +684,8 @@ private:
 
     if (bypass) {
       // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
-      outL = finalizeOutput(xL, outputGain, headroomGain, softClipDrive);
-      outR = finalizeOutput(xR, outputGain, headroomGain, softClipDrive);
+      outL = finalizeOutput(xL, outputGain, headroomGain, softClipDrive, softStartGain);
+      outR = finalizeOutput(xR, outputGain, headroomGain, softClipDrive, softStartGain);
       ++diagBypassSampleCount;
       const float absOutL = fabsf(outL);
       const float absOutR = fabsf(outR);
@@ -689,8 +700,8 @@ private:
       return;
     }
 
-    if (mode == MODE_ENCODE) processEncode(xL, xR, outL, outR);
-    else processDecode(xL, xR, outL, outR);
+    if (mode == MODE_ENCODE) processEncode(xL, xR, outL, outR, softStartGain);
+    else processDecode(xL, xR, outL, outR, softStartGain);
     const float absOutL = fabsf(outL);
     const float absOutR = fabsf(outR);
     if (absOutL > diagOutputPeakL) diagOutputPeakL = absOutL;

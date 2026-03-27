@@ -23,7 +23,15 @@ from ocx_type2_auto_cal import (
     resolve_wizard_expected_transport,
     update_block_tracker,
 )
-from ocx_type2_harness import build_case_specs, compare, evaluate_profile_set, evaluate_scores, run_detector_study, run_tuning
+from ocx_type2_harness import (
+    build_case_specs,
+    build_tracking_burst_summary,
+    compare,
+    evaluate_profile_set,
+    evaluate_scores,
+    run_detector_study,
+    run_tuning,
+)
 from ocx_type2_wav_sim import Decoder, DecoderParams, Encoder, EncoderParams, PROFILE_PATH, ensure_stereo
 
 
@@ -129,6 +137,21 @@ def test_tuning_rerank_uses_44100_final_stage():
         harness_module.build_cases = original
 
     assert run["final_fs"] == 44_100
+
+
+def test_build_case_specs_applies_max_case_seconds_limit():
+    fs = 4000
+    specs = build_case_specs(fs, max_case_seconds=0.25)
+    assert specs
+    assert all(len(spec["input"]) <= int(fs * 0.25) for spec in specs.values())
+
+
+def test_tracking_burst_summary_contains_required_cases():
+    rows = harness_module.evaluate_candidate(PROFILE_PATH, 4000, build_case_specs(4000), mode="decode")
+    summary = build_tracking_burst_summary(rows)
+    assert "cases" in summary
+    for case in ["bursts", "transient_train", "fast_level_switches"]:
+        assert case in summary["cases"]
 
 
 def test_tuning_honors_requested_mode():
@@ -258,6 +281,15 @@ def test_firmware_restoration_parameters_are_wired_without_magic_thresholds():
     assert "dropout_level_drop_db" in (ROOT / "ocx_type2_profile.json").read_text()
     assert "saturation_threshold" in (ROOT / "ocx_type2_profile.json").read_text()
     assert "saturation_knee_db" in (ROOT / "ocx_type2_profile.json").read_text()
+
+
+def test_firmware_output_softstart_guard_is_present_for_transition_clip_control():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "kOutputSoftStartMs" in ino
+    assert "outputSoftStartSamplesRemaining" in ino
+    assert "void armOutputSoftStart()" in ino
+    assert "setMode(Mode m)               { if (mode != m) { mode = m; armOutputSoftStart(); } }" in ino
+    assert "setBypass(bool v)             { if (bypass != v) { bypass = v; armOutputSoftStart(); } }" in ino
     assert "if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb)" in ino
     assert "if (saturationSoftfail && peak > saturationThreshold && gainDb > 0.0f)" in ino
     assert "gainDb -= over * saturationKneeDb;" in ino
@@ -586,3 +618,38 @@ def test_encoder_presets_are_currently_intentionally_identical():
     profile = json.loads(PROFILE_PATH.read_text())
     enc = profile["presets"]["encoder"]
     assert enc["universal"] == enc["auto_cal"]
+
+
+def test_telem_analyzer_detects_startup_clip_burst():
+    from ocx_telem_analyzer import summarize_log
+
+    lines = [
+        "[DIAG] samples=256 guardState=IDLE clipOutNew=0 clipOutTotal=0 nearLimitPct10s=0.0 clampBoostPct10s=0.0",
+        "[DIAG] samples=512 guardState=BRAKE clipOutNew=35 clipOutTotal=35 nearLimitPct10s=0.0 clampBoostPct10s=0.0",
+        "[DIAG] samples=768 guardState=RELAX clipOutNew=0 clipOutTotal=35 nearLimitPct10s=0.0 clampBoostPct10s=0.0",
+        "[TLM] cpuNow=10.5 outClipNew=0 clipOutTotal=35 guardState=IDLE nearLimitPct10s=0.0 clampBoostPct10s=0.0",
+    ]
+
+    summary = summarize_log(lines)
+    assert summary["clip_out_total_final"] == 35
+    assert summary["clip_jump_count"] == 1
+    assert summary["clip_out_delta_sum"] == 35
+    assert summary["likely_startup_only"] is True
+
+
+def test_telem_analyzer_detects_non_startup_clips():
+    from ocx_telem_analyzer import summarize_log
+
+    lines = [
+        "[DIAG] samples=128 guardState=IDLE clipOutNew=0 clipOutTotal=0",
+        *[
+            f"[DIAG] samples={256 + i*128} guardState=IDLE clipOutNew=0 clipOutTotal=0"
+            for i in range(30)
+        ],
+        "[DIAG] samples=5000 guardState=PROTECT clipOutNew=3 clipOutTotal=3 nearLimitPct10s=2.1 clampBoostPct10s=0.7",
+    ]
+
+    summary = summarize_log(lines)
+    assert summary["clip_jump_count"] == 1
+    assert summary["likely_startup_only"] is False
+    assert summary["first_clip_jump"]["guard_state"] == "PROTECT"
