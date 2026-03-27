@@ -281,6 +281,15 @@ def test_firmware_restoration_parameters_are_wired_without_magic_thresholds():
     assert "dropout_level_drop_db" in (ROOT / "ocx_type2_profile.json").read_text()
     assert "saturation_threshold" in (ROOT / "ocx_type2_profile.json").read_text()
     assert "saturation_knee_db" in (ROOT / "ocx_type2_profile.json").read_text()
+
+
+def test_firmware_output_softstart_guard_is_present_for_transition_clip_control():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "kOutputSoftStartMs" in ino
+    assert "outputSoftStartSamplesRemaining" in ino
+    assert "void armOutputSoftStart()" in ino
+    assert "setMode(Mode m)               { if (mode != m) { mode = m; armOutputSoftStart(); } }" in ino
+    assert "setBypass(bool v)             { if (bypass != v) { bypass = v; armOutputSoftStart(); } }" in ino
     assert "if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb)" in ino
     assert "if (saturationSoftfail && peak > saturationThreshold && gainDb > 0.0f)" in ino
     assert "gainDb -= over * saturationKneeDb;" in ino
