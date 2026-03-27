@@ -1091,6 +1091,24 @@ def run_detector_study(profile_path: Path, fs: int, mode: str = "decode", preset
     }
 
 
+def evaluate_profile_set(profile_path: Path, fs: int, mode: str, reference_dir: Path, profiles: list[str]) -> dict[str, object]:
+    case_specs = build_case_specs(fs, reference_dir)
+    profile_doc = json.loads(profile_path.read_text())
+    slot_map = profile_doc.get("profile_slots", {}).get("decoder", {})
+    per_profile: dict[str, object] = {}
+    for profile_name in profiles:
+        slot_overrides = slot_map.get(profile_name)
+        if not isinstance(slot_overrides, dict):
+            raise KeyError(f"Missing decoder slot definition for '{profile_name}' in profile_slots.decoder")
+        rows = evaluate_candidate(profile_path, fs, case_specs, mode=mode, preset="auto_cal", overrides=slot_overrides)
+        per_profile[profile_name] = {"summary": evaluate_scores(rows), "cases": len(rows)}
+    return {
+        "mode": mode,
+        "profiles": profiles,
+        "per_profile": per_profile,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", type=Path, default=Path("artifacts/harness"))
@@ -1116,6 +1134,7 @@ def main() -> None:
     ap.add_argument("--tune-top-k", type=int, default=6, help="Number of coarse finalists to rerank at final sample rate.")
     ap.add_argument("--tune-max-candidates", type=int, default=2, help="Limit of coarse candidates to evaluate for compact tuning runs.")
     ap.add_argument("--detector-study", action="store_true", help="Compare energy-like detector and RMS-nearer detector in simulator.")
+    ap.add_argument("--profile-set-report", action="store_true", help="Emit summary for single/lw1/lw2/common profile slots.")
     args = ap.parse_args()
 
     profile = json.loads(args.profile.read_text())
@@ -1139,6 +1158,9 @@ def main() -> None:
         if args.detector_study:
             study = run_detector_study(args.profile, fs=fs, mode=args.mode, preset=args.preset)
             (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
+        if args.profile_set_report:
+            set_report = evaluate_profile_set(args.profile, fs=fs, mode=args.mode, reference_dir=args.reference_dir, profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
+            (args.out_dir / "profile_set_summary.json").write_text(json.dumps(set_report, indent=2))
         return
 
     ref_reports: dict[str, object] = {}
@@ -1224,6 +1246,9 @@ def main() -> None:
     if args.detector_study:
         study = run_detector_study(args.profile, fs=fs, preset=args.preset)
         (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
+    if args.profile_set_report:
+        set_report = evaluate_profile_set(args.profile, fs=fs, mode=args.mode, reference_dir=args.reference_dir, profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
+        (args.out_dir / "profile_set_summary.json").write_text(json.dumps(set_report, indent=2))
 
 
 if __name__ == "__main__":

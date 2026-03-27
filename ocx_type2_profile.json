@@ -128,5 +128,29 @@
     "enabled": false,
     "frequency_hz": 400.0,
     "level_dbfs": -9.8
+  },
+  "profile_slots": {
+    "decoder": {
+      "single_profile": {
+        "reference_db": -18.0,
+        "output_trim_db": -1.0,
+        "headroom_db": 1.0
+      },
+      "lw1_profile": {
+        "reference_db": -18.2,
+        "output_trim_db": -1.05,
+        "headroom_db": 1.1
+      },
+      "lw2_profile": {
+        "reference_db": -18.45,
+        "output_trim_db": -1.2,
+        "headroom_db": 1.3
+      },
+      "common_profile": {
+        "reference_db": -18.32,
+        "output_trim_db": -1.15,
+        "headroom_db": 1.3
+      }
+    }
   }
 }
