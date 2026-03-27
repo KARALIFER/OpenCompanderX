@@ -1,0 +1,37 @@
+{
+  "lines": 4,
+  "max_samples_seen": 768,
+  "clip_out_total_final": 35,
+  "clip_jump_count": 1,
+  "clip_out_delta_sum": 35,
+  "likely_startup_only": true,
+  "guard_states_seen": {
+    "IDLE": 2,
+    "BRAKE": 1,
+    "RELAX": 1
+  },
+  "first_clip_jump": {
+    "line_no": 2,
+    "time_hint_s": null,
+    "prev_total": 0,
+    "new_total": 35,
+    "delta": 35,
+    "out_clip_new": 35,
+    "guard_state": "BRAKE",
+    "near_limit_pct_10s": 0.0,
+    "clamp_boost_pct_10s": 0.0
+  },
+  "clip_jumps": [
+    {
+      "line_no": 2,
+      "time_hint_s": null,
+      "prev_total": 0,
+      "new_total": 35,
+      "delta": 35,
+      "out_clip_new": 35,
+      "guard_state": "BRAKE",
+      "near_limit_pct_10s": 0.0,
+      "clamp_boost_pct_10s": 0.0
+    }
+  ]
+}

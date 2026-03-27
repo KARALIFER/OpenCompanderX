@@ -1,0 +1,56 @@
+{
+  "cases": {
+    "bursts": {
+      "gain_curve_diff_p95_db": 79.19766082778217,
+      "gain_curve_diff_std_db": 39.72577724251965,
+      "transient_delta": 0.055064315185797144,
+      "overshoot_delta": 0.3266850821237529,
+      "undershoot_delta": 0.36624840828352473,
+      "decode_action_ratio": 0.3170734608508109,
+      "output_clip": 0
+    },
+    "transient_train": {
+      "gain_curve_diff_p95_db": 193.1648896063824,
+      "gain_curve_diff_std_db": 126.7371690756398,
+      "transient_delta": 0.5647701819689686,
+      "overshoot_delta": 0.5497372889258819,
+      "undershoot_delta": 0.7334865158696476,
+      "decode_action_ratio": 0.5696491633607543,
+      "output_clip": 0
+    },
+    "fast_level_switches": {
+      "gain_curve_diff_p95_db": 1.5970464477540953,
+      "gain_curve_diff_std_db": 0.7372123332123692,
+      "transient_delta": 0.05079635189698838,
+      "overshoot_delta": 0.2369445941441465,
+      "undershoot_delta": 0.24300033569385027,
+      "decode_action_ratio": 0.4198352989993858,
+      "output_clip": 0
+    },
+    "music_like": {
+      "gain_curve_diff_p95_db": 0.1941334705750819,
+      "gain_curve_diff_std_db": 0.16002851826595493,
+      "transient_delta": 0.020575208975365848,
+      "overshoot_delta": 0.15415696379488206,
+      "undershoot_delta": 0.2261213612616529,
+      "decode_action_ratio": 0.23382540492893344,
+      "output_clip": 0
+    },
+    "bass_plus_hf": {
+      "gain_curve_diff_p95_db": 0.2782851010528229,
+      "gain_curve_diff_std_db": 0.15180574848534142,
+      "transient_delta": 0.30385947566987737,
+      "overshoot_delta": 0.60237087369782,
+      "undershoot_delta": 0.5388518717935296,
+      "decode_action_ratio": 0.6655989657934317,
+      "output_clip": 1
+    }
+  },
+  "aggregate": {
+    "case_count": 5,
+    "clips_in_selected_cases": 1,
+    "mean_gain_curve_diff_p95_db": 54.886403090709315,
+    "mean_overshoot_delta": 0.3739789605372967,
+    "mean_undershoot_delta": 0.421541698580441
+  }
+}
