@@ -29,7 +29,7 @@ Vollständige getrackte Dateien:
 23. artifacts/harness_tune/tuning_best.json — generiertes Messartefakt, nicht build-relevant.
 24. ocx_type2_harness.py — Python-Harness, run-relevant.
 25. ocx_type2_profile.json — gemeinsame Parameterquelle, build/run-relevant.
-26. ocx_type2_teensy41_decoder.ino — Firmwarekern, build-relevant.
+26. OpenCompanderX.ino — Firmwarekern, build-relevant.
 27. ocx_type2_wav_sim.py — Python-Simulator, run-relevant.
 28. platformio.ini — PlatformIO-Builddefinition, build-relevant.
 29. refs/README.md — Referenzmaterial-Doku, run-relevant für Harness-Referenzpfad.
@@ -50,7 +50,7 @@ Ergebnis vor Patch: **kein Inhaltunterschied** (0 Diff-Zeilen).
 
 Konsequenz:
 - Kein separater „größerer lokaler Sketch“ nachweisbar.
-- Der lokale Sketch `ocx_type2_teensy41_decoder.ino` entsprach vor der Korrektur exakt dem Public-Repo-Stand.
+- Der lokale Sketch `OpenCompanderX.ino` entsprach vor der Korrektur exakt dem Public-Repo-Stand.
 
 ## C) Arduino/Teensy Buildprüfung
 
@@ -102,8 +102,8 @@ Audio-Run-Status:
 ## Konkreter Minimal-Patch
 
 ```diff
---- a/ocx_type2_teensy41_decoder.ino
-+++ b/ocx_type2_teensy41_decoder.ino
+--- a/OpenCompanderX.ino
++++ b/OpenCompanderX.ino
 @@
  #include <SPI.h>
  #include <EEPROM.h>

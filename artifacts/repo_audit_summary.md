@@ -30,7 +30,7 @@
 | `artifacts/harness_tune/tuning_best.json` | Repository-Datei (siehe Inhalt). | artifact, audio-relevant |
 | `ocx_type2_harness.py` | Harness, Metriken, Tuning, Detector-Study, Referenz-Tools. | audio-relevant |
 | `ocx_type2_profile.json` | Gemeinsames Decoder/Encoder-Profil. | audio-relevant |
-| `ocx_type2_teensy41_decoder.ino` | Haupt-Firmware (DSP, Telemetrie, Persistenz). | build-relevant |
+| `OpenCompanderX.ino` | Haupt-Firmware (DSP, Telemetrie, Persistenz). | build-relevant |
 | `ocx_type2_wav_sim.py` | Offline-Simulator decode/encode/roundtrip. | audio-relevant |
 | `platformio.ini` | PlatformIO-Board/Framework-Konfiguration für Teensy 4.1. | build-relevant |
 | `refs/README.md` | Layout und Regeln für Referenzmaterial. | docs |
