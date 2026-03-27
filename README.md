@@ -1,82 +1,87 @@
 # OpenCompanderX / OCX Type 2
 
-OpenCompanderX is a **firmware-first project for Teensy 4.1 + SGTL5000** (Teensy Audio Adaptor Rev D/D2).
+OpenCompanderX is a **firmware-first project** for **Teensy 4.1 + SGTL5000** (Teensy Audio Adaptor Rev D/D2).
 
-The main purpose of this repository is practical dbx Type II–style cassette decoding on **real hardware**: flash firmware, connect your deck/player, calibrate when needed, and run playback with telemetry and conservative protection.
-
-Offline simulator/harness tooling exists for validation work, but for normal users the main product is the Teensy firmware workflow on hardware.
+Main goal: practical dbx Type II–style cassette decoding on **real hardware** with a clear workflow (flash firmware -> connect source -> check telemetry -> calibrate when needed -> run playback).
 
 > This project is independent and is not affiliated with, endorsed by, or sponsored by dbx, HARMAN, or any trademark owner.
 
-## What this project does
+## What this project is
 
-- Main focus: **decode** Type II encoded cassette playback on real hardware.
-- `UNIVERSAL`: baseline preset for general playback.
-- `AUTO_CAL`: static calibration mode based on a **dbx Type II encoded 1 kHz measurement tape tone**.
-- `PLAYBACK_GUARD_DYNAMIC`: conservative protection layer for playback runtime.
-- Encode/roundtrip paths exist, but decode is the main user entry path.
+For normal users, the primary product is the Teensy firmware workflow on hardware.
+Simulator/harness tools exist for technical validation, but they are not the main entry path for first-time users.
 
 ## Target hardware
 
 - **Teensy 4.1**
 - **Teensy Audio Adaptor Rev D/D2 (SGTL5000)**
 - Stereo **Line-In** -> stereo **Line-Out / Headphone**
+- USB data cable to the host PC
 
-## Quickstart: flash firmware (Windows + Arduino IDE first)
+## Main features
 
-### Recommended for normal users: Windows + Arduino IDE + Teensy Loader
+- `UNIVERSAL`: baseline playback preset.
+- `AUTO_CAL`: static calibration mode.
+- `PLAYBACK_GUARD_DYNAMIC`: conservative runtime protection for playback.
+- Runtime telemetry and serial commands for everyday operation.
 
-1. Install **Arduino IDE** (current stable release).
-2. Install **Teensy board support** (Teensyduino / PJRC integration for Arduino IDE).
-3. Open `ocx_type2_teensy41_decoder.ino` in Arduino IDE.
-4. Set board to **Teensy 4.1**.
-5. Set USB Type to **Serial**.
-6. Keep CPU speed at the default Teensy 4.1 setting unless you have a specific reason to change it.
-7. Click **Verify/Compile**, then **Upload** (Teensy Loader flow).
-8. Open Arduino IDE **Serial Monitor**.
-
-### Optional path for advanced users: PlatformIO
-
-1. Build firmware:
-   ```bash
-   pio run -e teensy41
-   ```
-2. Upload firmware:
-   ```bash
-   pio run -e teensy41 -t upload
-   ```
-3. Open serial monitor:
-   ```bash
-   pio device monitor
-   ```
-
-## First boot / first real use
-
-After flashing and opening serial monitor, use this minimal path:
-
-1. Send `0` to load factory preset.
-2. Send `p` for full status.
-3. Send `m` for compact telemetry.
-4. If using measurement tape workflow, send `l` to start `AUTO_CAL`.
-5. Check `J` / `K` / `L` (AUTO_CAL status / raw telemetry / locked values).
-
-## Calibration basics (must-know)
+## Calibration basics (short)
 
 - `AUTO_CAL` is **not** a permanent music auto-tuner.
-- AUTO_CAL base tone = **dbx Type II encoded 1 kHz measurement tape tone**.
-- 400 Hz tone = **workflow/output calibration tone** (post-decoder), not AUTO_CAL tone.
-- `0 VU` = **recording reference** of the measurement tape.
-- Actual decoder input level depends on deck/player line output level.
+- `AUTO_CAL` uses a **dbx Type II encoded 1 kHz reference tone from a measurement tape** as static base.
+- The **400 Hz tone is not the AUTO_CAL tone**.
+- The **400 Hz tone** is a **post-decoder workflow/output calibration tone**.
+- `0 VU` is the **recording reference** of the measurement tape.
+- Actual decoder input level depends on the output level of your deck/walkman/player.
+
+## Windows quickstart: flash with Arduino IDE
+
+### What you need
+
+- Windows PC
+- Arduino IDE (current stable release)
+- Teensy board support for Arduino IDE (Teensyduino / PJRC integration)
+- Teensy 4.1 + Teensy Audio Adaptor Rev D/D2
+- Repository checkout (or at least `ocx_type2_teensy41_decoder.ino` in the correct sketch folder)
+
+### Step-by-step
+
+1. Install Arduino IDE.
+2. Install Teensy board support so Teensy boards are available in Arduino IDE.
+3. Open `ocx_type2_teensy41_decoder.ino`.
+4. In Arduino IDE, set:
+   - **Board:** `Teensy 4.1`
+   - **USB Type:** `Serial`
+5. Click **Verify/Compile**.
+6. Click **Upload**.
+7. If upload does not start automatically, open Teensy Loader and press the Teensy **Program** button once.
+8. Open the Arduino IDE **Serial Monitor** after upload.
+
+## Alternative for advanced users: PlatformIO
+
+```bash
+pio run -e teensy41
+pio run -e teensy41 -t upload
+pio device monitor
+```
+
+## First steps after flashing
+
+1. Send `0` -> load factory preset.
+2. Send `p` -> full status.
+3. Send `m` -> compact telemetry.
+4. Optional measurement workflow: send `l` -> start `AUTO_CAL`.
+5. Check `J`, `K`, `L` -> AUTO_CAL status/raw telemetry/locked values.
 
 ## Guard behavior (short)
 
-`PLAYBACK_GUARD_DYNAMIC` is conservative by design:
+`PLAYBACK_GUARD_DYNAMIC` is a conservative safety layer:
 
 - lowers output trim if needed,
 - increases headroom if needed,
 - can reduce boost cap if needed.
 
-It does **not** retune decoder core behavior live during playback.
+It does **not** retune the decoder core live during playback.
 
 ## Important commands
 
@@ -106,8 +111,6 @@ It does **not** retune decoder core behavior live during playback.
 
 - Technical validation/methodology: [`FINAL_VALIDATION_ocx_type2_teensy.md`](FINAL_VALIDATION_ocx_type2_teensy.md)
 - AI/Codex/contributor doc boundaries: [`DOCS_FOR_AI_AND_CONTRIBUTORS.md`](DOCS_FOR_AI_AND_CONTRIBUTORS.md)
-
-For technical baseline/default parameter details, use the validation/contributor docs instead of this quickstart README.
 
 ## Discoverability (concise)
 
