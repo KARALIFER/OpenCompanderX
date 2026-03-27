@@ -4,6 +4,8 @@ OpenCompanderX is a **firmware-first project for Teensy 4.1 + SGTL5000** (Teensy
 
 The main purpose of this repository is practical dbx Type II–style cassette decoding on **real hardware**: flash firmware, connect your deck/player, calibrate when needed, and run playback with telemetry and conservative protection.
 
+Offline simulator/harness tooling exists for validation work, but for normal users the main product is the Teensy firmware workflow on hardware.
+
 > This project is independent and is not affiliated with, endorsed by, or sponsored by dbx, HARMAN, or any trademark owner.
 
 ## What this project does
@@ -20,15 +22,26 @@ The main purpose of this repository is practical dbx Type II–style cassette de
 - **Teensy Audio Adaptor Rev D/D2 (SGTL5000)**
 - Stereo **Line-In** -> stereo **Line-Out / Headphone**
 
-## Quickstart: flash firmware
+## Quickstart: flash firmware (Windows + Arduino IDE first)
 
-### Option A: PlatformIO
+### Recommended for normal users: Windows + Arduino IDE + Teensy Loader
+
+1. Install **Arduino IDE** (current stable release).
+2. Install **Teensy board support** (Teensyduino / PJRC integration for Arduino IDE).
+3. Open `ocx_type2_teensy41_decoder.ino` in Arduino IDE.
+4. Set board to **Teensy 4.1**.
+5. Set USB Type to **Serial**.
+6. Keep CPU speed at the default Teensy 4.1 setting unless you have a specific reason to change it.
+7. Click **Verify/Compile**, then **Upload** (Teensy Loader flow).
+8. Open Arduino IDE **Serial Monitor**.
+
+### Optional path for advanced users: PlatformIO
 
 1. Build firmware:
    ```bash
    pio run -e teensy41
    ```
-2. Upload firmware (or use Teensy Loader button flow):
+2. Upload firmware:
    ```bash
    pio run -e teensy41 -t upload
    ```
@@ -36,14 +49,6 @@ The main purpose of this repository is practical dbx Type II–style cassette de
    ```bash
    pio device monitor
    ```
-
-### Option B: Arduino IDE + Teensy Loader
-
-1. Open `ocx_type2_teensy41_decoder.ino`.
-2. Board: **Teensy 4.1**.
-3. USB type: **Serial**.
-4. Compile and upload.
-5. Open serial monitor.
 
 ## First boot / first real use
 
