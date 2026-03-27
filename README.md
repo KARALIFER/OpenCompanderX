@@ -46,7 +46,7 @@ The following aspects can only be fully evaluated on real hardware:
 There are now two selectable presets:
 
 - `universal` (default after factory reset; unchanged baseline)
-- `auto_cal` (explicit 1-kHz measurement-tape calibration mode as static base)
+- `auto_cal` (explicit dbx Type II encoded 1-kHz measurement-tape calibration mode as static base)
 
 A dynamic playback guard layer is enabled by default and only makes playback more conservative (trim down/headroom up/boost cap down).
 Encoder presets are currently intentionally identical across `universal` and `auto_cal`.
@@ -54,6 +54,7 @@ Encoder presets are currently intentionally identical across `universal` and `au
 ## AUTO_CAL reality check (current main)
 
 `AUTO_CAL` is still a **measurement-cassette workflow**, not an always-on music auto mode.  
+`AUTO_CAL uses a dbx Type II encoded 1 kHz reference tone from a measurement tape as a static calibration base.`
 The current implementation was hardened for real-world cassette drift/jitter conditions:
 
 - tone detection now uses a narrow tolerance band around 1 kHz (not only one exact bin),
@@ -104,13 +105,16 @@ These two values are intentionally kept separate:
 
 In the firmware, the calibration tone is injected **post-decoder** into the output mix.  
 It is therefore used for output and workflow calibration, not as a decoder input test tone.
+This 400 Hz workflow tone is not the AUTO_CAL tape tone.
 
 Also, `bypass` is intentionally **not** a transparent hard-relay bypass: headroom and soft clip remain active so that analog output protection is preserved even in bypass mode.
 
 ### Current hardware reference point for the documented user setup
 (Mixtape Nerd + TEAC W-1200 + RTM tape)
 
-- 0 VU / tape reference is practically located at about **-9.8 dBFS**  
+- 0 VU describes the **recording reference** of the measurement tape, not a guaranteed fixed playback input level.
+- Actual playback level at decoder input depends on the source deck/walkman/player output stage.
+- For the documented setup, 0 VU / tape reference is practically located at about **-9.8 dBFS**  
   (roundable to -10 dBFS)
 - That is why the default test tone is set to **400 Hz @ -9.8 dBFS**
 
@@ -251,6 +255,7 @@ Note: `--mode` is honored for tuning and detector-study invocations as well (for
 - `p` = full status
 - `m` = compact telemetry status  
   (including `bypass=ON/OFF`, last `gDb/envDb`, tone status, and L/R mode)
+- `T` = toggle periodic DIAG mode (3 s compact runtime diagnostics for long-play observation)
 - `n` = signal diagnostics snapshot  
   (input/output peak + RMS + mean, gain/env, decode activity, in/out delta, L/R balance)
 - `N` = reset signal diagnostics counters only
@@ -280,7 +285,9 @@ Note: `--mode` is honored for tuning and detector-study invocations as well (for
 
 1. Boot the device and load the factory preset with `0`.
 2. Reset clip/runtime counters and maxima using `X`.
-3. Calibration: feed a 400 Hz test tone at `tone.level_dbfs = -9.8` and align it to the setup’s own 0 VU / reference point in the deck workflow.
+3. Calibration workflow split:
+   - AUTO_CAL path: measurement tape with dbx Type II encoded 1 kHz reference tone (`l` command).
+   - Output/workflow path: internal 400 Hz post-decoder tone at `tone.level_dbfs = -9.8` for setup level workflow.
 4. Play the defined test source for several minutes.
 5. Read the compact status cyclically with `m`, and check the full status with `p`.
 6. Evaluation: CPU and memory reserve sufficient, `allocFailCount == 0`, clip counters plausible relative to input level and headroom.
