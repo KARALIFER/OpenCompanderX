@@ -220,6 +220,26 @@ def test_dual_lw_autocal_keeps_selected_transport_and_slot_mapping():
     assert "profileStore.lw2Profile = p;" in ino
 
 
+
+
+def test_arduino_autoprototype_has_calprofile_forward_decl():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "struct CalProfile;" in ino
+
+
+def test_dual_lw_common_profile_becomes_default_and_is_persisted():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    compute = re.search(r"void computeAutoCalResult\(\)\s*\{(.+?)\n\}", ino, re.S)
+    assert compute is not None
+    body = compute.group(1)
+    assert "if (profileStore.lw1Valid && profileStore.lw2Valid)" in body
+    assert "profileStore.commonValid = 1;" in body
+    assert "selectedProfile = PROFILE_COMMON;" in body
+    assert "currentPreset = PRESET_AUTO_CAL;" in body
+    assert "applyDecoderPreset(PRESET_AUTO_CAL);" in body
+    assert "persistSettings();" in body
+
+
 def test_segment_meta_collector_keeps_real_per_segment_values():
     c = SegmentMetaCollector()
     c.add_segment(duration_blocks=410, peak_avg=0.41, tone_avg=0.73, peak_spread=0.03)

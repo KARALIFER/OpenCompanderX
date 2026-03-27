@@ -15,9 +15,10 @@
 #include <math.h>
 #include <string.h>
 
-// Forward declaration to keep Arduino auto-prototype generation safe for
-// functions that take PersistSettings before the struct definition appears.
+// Forward declarations to keep Arduino auto-prototype generation safe for
+// functions that mention structs before their full definitions appear.
 struct PersistSettings;
+struct CalProfile;
 void factoryResetSettings();
 void setAutoRejectReason(const char* reason);
 
@@ -1355,11 +1356,13 @@ void computeAutoCalResult() {
       profileStore.commonProfile.guardHeadroomStartDb = fmaxf(profileStore.lw1Profile.guardHeadroomStartDb, profileStore.lw2Profile.guardHeadroomStartDb);
       profileStore.commonMeta.confidence = fminf(profileStore.lw1Meta.confidence, profileStore.lw2Meta.confidence) * 0.9f;
       profileStore.commonValid = 1;
+      selectedProfile = PROFILE_COMMON;
     }
   }
 
   currentPreset = PRESET_AUTO_CAL;
   applyDecoderPreset(PRESET_AUTO_CAL);
+  persistSettings();
   autoCalState = AUTO_LOCKED;
   autoStateEnterMs = millis();
   autoRejectReason = "none";
@@ -2113,7 +2116,11 @@ void maybePrintAutoLockSummary() {
   if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW1) {
     Serial.println(F("[WIZARD] Messung fuer LW1 abgeschlossen. Fuer LW2 Deck umschalten (']') und 'l' erneut starten."));
   } else if (deckType == DECK_DUAL_LW && wizardExpectedTransport == TRANSPORT_LW2) {
-    Serial.println(F("[WIZARD] Messung fuer LW2 abgeschlossen. Optional: common_profile per '}' aktivieren."));
+    if (selectedProfile == PROFILE_COMMON && profileStore.commonValid) {
+      Serial.println(F("[WIZARD] Messung fuer LW2 abgeschlossen. common_profile ist jetzt Default und gespeichert."));
+    } else {
+      Serial.println(F("[WIZARD] Messung fuer LW2 abgeschlossen. common_profile nicht verfuegbar; dediziertes Profil bleibt aktiv."));
+    }
   } else {
     Serial.println(F("[WIZARD] Single-LW Messung abgeschlossen."));
   }
