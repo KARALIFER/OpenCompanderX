@@ -195,7 +195,7 @@ def test_profile_and_firmware_defaults_are_synced():
     encoder = profile["encoder"]
     codec = profile["codec"]
     tone = profile["tone"]
-    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
 
     expected_pairs = {
         "kLineInLevel": codec["line_in_level"],
@@ -403,7 +403,7 @@ def test_auto_cal_candidate_selection_is_universal_only():
 
 
 def test_auto_cal_persistence_remains_unchanged_on_failed_attempt():
-    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
     begin_idx = ino.index("void beginAutoCal()")
     begin_body = ino[begin_idx : ino.index("void computeAutoCalResult()", begin_idx)]
     assert "autoCalValid = false" not in begin_body
@@ -411,13 +411,13 @@ def test_auto_cal_persistence_remains_unchanged_on_failed_attempt():
 
 
 def test_auto_cal_invalid_stored_profile_falls_back_to_universal():
-    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
     assert "currentPreset = PRESET_UNIVERSAL;" in ino
     assert "autoCalValid = false;" in ino
 
 
 def test_auto_cal_stereo_telemetry_command_and_detectors_present():
-    ino = (ROOT / "ocx_type2_teensy41_decoder.ino").read_text()
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
     for token in [
         "toneDetectRLo",
         "toneDetectRCenter",

@@ -42,14 +42,14 @@ If you want the fastest start: flash the firmware with **Arduino IDE on Windows*
 - Windows PC
 - Arduino IDE (stable)
 - Teensy board support (PJRC / Teensyduino integration)
-- This repository checkout (especially `ocx_type2_teensy41_decoder.ino`)
+- This repository checkout (especially `OpenCompanderX.ino`)
 
 ### Steps
 
 1. Install Arduino IDE.
 2. In Boards/Package Manager, add/install **Teensy board support**.
 3. Confirm `Teensy 4.1` is available as board option.
-4. Open `ocx_type2_teensy41_decoder.ino` from this repository.
+4. Open `OpenCompanderX.ino` from this repository.
 5. Set in Arduino IDE:
    - **Board:** `Teensy 4.1`
    - **USB Type:** `Serial`
