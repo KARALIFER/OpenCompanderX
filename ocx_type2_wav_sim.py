@@ -109,6 +109,16 @@ class DecoderParams:
     headroom_db: float
     detector_mode: str = "energy"
     detector_rms_ms: float = 6.0
+    operation_mode: str = "strict_compatible"
+    sidechain_lp_hz: float = 10000.0
+    auto_trim_enabled: bool = True
+    auto_trim_max_db: float = 2.0
+    dropout_hold_ms: float = 0.0
+    dropout_hf_drop_db: float = 10.0
+    dropout_level_drop_db: float = 9.0
+    saturation_softfail: bool = False
+    saturation_threshold: float = 0.90
+    saturation_knee_db: float = 4.0
     bypass: bool = False
 
     @classmethod
@@ -138,6 +148,8 @@ class EncoderParams:
     headroom_db: float
     detector_mode: str = "energy"
     detector_rms_ms: float = 6.0
+    operation_mode: str = "strict_compatible"
+    sidechain_lp_hz: float = 10000.0
     bypass: bool = False
 
     @classmethod
@@ -243,6 +255,27 @@ def design_high_shelf(fs: float, hz: float, gain_db: float, slope: float = 0.8) 
     return f
 
 
+def design_lowpass(fs: float, hz: float, q: float = 0.7071) -> Biquad:
+    f = Biquad()
+    hz = clamp(hz, 100.0, fs * 0.45)
+    w0 = 2.0 * math.pi * hz / fs
+    cosw0 = math.cos(w0)
+    sinw0 = math.sin(w0)
+    alpha = sinw0 / (2.0 * q)
+    b0 = (1.0 - cosw0) * 0.5
+    b1 = 1.0 - cosw0
+    b2 = (1.0 - cosw0) * 0.5
+    a0 = 1.0 + alpha
+    a1 = -2.0 * cosw0
+    a2 = 1.0 - alpha
+    f.b0 = b0 / a0
+    f.b1 = b1 / a0
+    f.b2 = b2 / a0
+    f.a1 = a1 / a0
+    f.a2 = a2 / a0
+    return f
+
+
 class _CompanderCore:
     def __init__(self, fs: int, params: Any, mode: str):
         self.fs = int(fs)
@@ -254,6 +287,7 @@ class _CompanderCore:
         self.attack_coeff = math.exp(-1.0 / max(self.fs * params.attack_ms * 0.001, 1.0))
         self.release_coeff = math.exp(-1.0 / max(self.fs * params.release_ms * 0.001, 1.0))
         self.sc_hp = [design_highpass(self.fs, params.sidechain_hp_hz) for _ in range(2)]
+        self.sc_lp = [design_lowpass(self.fs, float(getattr(params, "sidechain_lp_hz", self.fs * 0.45))) for _ in range(2)]
         self.sc_shelf = [design_high_shelf(self.fs, params.sidechain_shelf_hz, params.sidechain_shelf_db) for _ in range(2)]
         tilt_db = float(getattr(params, "deemph_db", getattr(params, "tilt_db", 0.0)))
         tilt_hz = float(getattr(params, "deemph_hz", getattr(params, "tilt_hz", 1850.0)))
@@ -261,39 +295,75 @@ class _CompanderCore:
         self.dc_block = [OnePoleHP(self.fs, params.dc_block_hz) for _ in range(2)]
         self.env2 = np.full(2, 1.0e-9, dtype=np.float64)
         self.detector_env2 = np.full(2, 1.0e-9, dtype=np.float64)
+        self.link_env2 = 1.0e-9
         self.detector_mode = str(params.detector_mode).strip().lower()
         self.rms_coeff = math.exp(-1.0 / max(self.fs * params.detector_rms_ms * 0.001, 1.0))
+        self.operation_mode = str(getattr(params, "operation_mode", "strict_compatible")).strip().lower()
+        self.auto_trim_enabled = bool(getattr(params, "auto_trim_enabled", False))
+        self.auto_trim_max_db = abs(float(getattr(params, "auto_trim_max_db", 0.0)))
+        self.auto_trim_db = 0.0
+        self.auto_trim_coeff = math.exp(-1.0 / max(self.fs * 0.8, 1.0))
+        self.prev_sc_rms = 1.0e-6
+        self.dropout_hold_samples = int(max(0.0, float(getattr(params, "dropout_hold_ms", 0.0))) * self.fs * 0.001)
+        self.dropout_hf_drop_db = float(getattr(params, "dropout_hf_drop_db", 10.0))
+        self.dropout_level_drop_db = float(getattr(params, "dropout_level_drop_db", 9.0))
+        self.dropout_counter = 0
+        self.prev_gain_db = 0.0
+        self.saturation_softfail = bool(getattr(params, "saturation_softfail", False))
+        self.saturation_threshold = float(getattr(params, "saturation_threshold", 0.90))
+        self.saturation_knee_db = float(getattr(params, "saturation_knee_db", 4.0))
         self.input_clip = np.zeros(2, dtype=np.bool_)
         self.output_clip = np.zeros(2, dtype=np.bool_)
         self.gain_db_log: list[float] = []
 
     def reset(self) -> None:
-        for bank in (self.sc_hp, self.sc_shelf, self.tilt, self.dc_block):
+        for bank in (self.sc_hp, self.sc_lp, self.sc_shelf, self.tilt, self.dc_block):
             for f in bank:
                 f.reset()
         self.env2[:] = 1.0e-9
         self.detector_env2[:] = 1.0e-9
+        self.link_env2 = 1.0e-9
+        self.auto_trim_db = 0.0
+        self.prev_sc_rms = 1.0e-6
+        self.dropout_counter = 0
+        self.prev_gain_db = 0.0
         self.input_clip[:] = False
         self.output_clip[:] = False
         self.gain_db_log.clear()
 
     def _detector_power(self, x0: float, ch: int) -> float:
         sc = self.sc_hp[ch].process(x0)
+        sc = self.sc_lp[ch].process(sc)
         sc = self.sc_shelf[ch].process(sc)
         p = sanitize_scalar(sc * sc, 0.0, 1.0e12)
         if self.detector_mode == "rms":
             self.detector_env2[ch] = sanitize_scalar(self.rms_coeff * self.detector_env2[ch] + (1.0 - self.rms_coeff) * p, 0.0, 1.0e12)
             p = self.detector_env2[ch]
-        coeff = self.attack_coeff if p > self.env2[ch] else self.release_coeff
-        self.env2[ch] = sanitize_scalar(coeff * self.env2[ch] + (1.0 - coeff) * p, 0.0, 1.0e12)
-        return math.sqrt(self.env2[ch] + 1.0e-12)
+        return p
 
-    def _gain_db(self, env: float) -> float:
-        raw = (20.0 * math.log10(max(env, 1.0e-12)) - self.p.reference_db) * self.p.strength
+    def _gain_db(self, env: float, x_pair: tuple[float, float], sc_pair: tuple[float, float]) -> float:
+        raw = (20.0 * math.log10(max(env, 1.0e-12)) - self.p.reference_db + self.auto_trim_db) * self.p.strength
         if self.mode == "decode":
             gain_db = clamp(raw, -self.p.max_cut_db, self.p.max_boost_db)
         else:
             gain_db = clamp(-raw, -self.p.max_cut_db, self.p.max_boost_db)
+        if self.mode == "decode" and self.operation_mode == "restoration":
+            sc_rms = math.sqrt(0.5 * (sc_pair[0] * sc_pair[0] + sc_pair[1] * sc_pair[1]) + 1.0e-12)
+            in_rms = math.sqrt(0.5 * (x_pair[0] * x_pair[0] + x_pair[1] * x_pair[1]) + 1.0e-12)
+            hf_drop_db = 20.0 * math.log10(max(self.prev_sc_rms, 1.0e-12) / max(sc_rms, 1.0e-12))
+            level_drop_db = 20.0 * math.log10(max(abs(self.prev_sc_rms), 1.0e-12) / max(in_rms, 1.0e-12))
+            if hf_drop_db > self.dropout_hf_drop_db and level_drop_db > self.dropout_level_drop_db:
+                self.dropout_counter = self.dropout_hold_samples
+            if self.dropout_counter > 0:
+                self.dropout_counter -= 1
+                gain_db = 0.8 * self.prev_gain_db + 0.2 * gain_db
+            if self.saturation_softfail:
+                peak = max(abs(x_pair[0]), abs(x_pair[1]))
+                if peak > self.saturation_threshold and gain_db > 0.0:
+                    over = clamp((peak - self.saturation_threshold) / max(1.0e-6, 1.0 - self.saturation_threshold), 0.0, 1.0)
+                    gain_db -= over * self.saturation_knee_db
+        self.prev_sc_rms = math.sqrt(0.5 * (sc_pair[0] * sc_pair[0] + sc_pair[1] * sc_pair[1]) + 1.0e-12)
+        self.prev_gain_db = gain_db
         self.gain_db_log.append(float(gain_db))
         return gain_db
 
@@ -301,18 +371,38 @@ class _CompanderCore:
         st = ensure_stereo(audio)
         out = np.zeros_like(st)
         for i in range(len(st)):
-            for ch in (0, 1):
-                x0 = self.dc_block[ch].process(sanitize_scalar(float(st[i, ch]), -2.0, 2.0) * self.input_gain)
+            x_pair = (
+                self.dc_block[0].process(sanitize_scalar(float(st[i, 0]), -2.0, 2.0) * self.input_gain),
+                self.dc_block[1].process(sanitize_scalar(float(st[i, 1]), -2.0, 2.0) * self.input_gain),
+            )
+            for ch, x0 in enumerate(x_pair):
                 if abs(x0) > 0.98:
                     self.input_clip[ch] = True
-                if self.p.bypass:
+            if self.p.bypass:
+                for ch, x0 in enumerate(x_pair):
                     y = soft_clip(x0 * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
-                else:
-                    env = self._detector_power(x0, ch)
-                    gain_db = self._gain_db(env)
-                    y = x0 * db_to_lin(gain_db)
-                    y = self.tilt[ch].process(y)
-                    y = soft_clip(y * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
+                    y = sanitize_scalar(y, -1.0, 1.0)
+                    if abs(y) > 0.98:
+                        self.output_clip[ch] = True
+                    out[i, ch] = y
+                continue
+
+            pL = self._detector_power(x_pair[0], 0)
+            pR = self._detector_power(x_pair[1], 1)
+            linked_p = max(pL, pR)
+            coeff = self.attack_coeff if linked_p > self.link_env2 else self.release_coeff
+            self.link_env2 = sanitize_scalar(coeff * self.link_env2 + (1.0 - coeff) * linked_p, 0.0, 1.0e12)
+            env = math.sqrt(self.link_env2 + 1.0e-12)
+            if self.auto_trim_enabled and self.mode == "decode" and self.operation_mode != "controlled_record":
+                env_db = 20.0 * math.log10(max(env, 1.0e-12))
+                if env_db < -36.0:
+                    target = clamp((self.p.reference_db - env_db) * 0.12, -self.auto_trim_max_db, self.auto_trim_max_db)
+                    self.auto_trim_db = self.auto_trim_coeff * self.auto_trim_db + (1.0 - self.auto_trim_coeff) * target
+            gain_db = self._gain_db(env, x_pair, (math.sqrt(pL + 1.0e-12), math.sqrt(pR + 1.0e-12)))
+            gain_lin = db_to_lin(gain_db)
+            for ch, x0 in enumerate(x_pair):
+                y = self.tilt[ch].process(x0 * gain_lin)
+                y = soft_clip(y * self.output_gain * self.headroom_gain, self.p.soft_clip_drive)
                 y = sanitize_scalar(y, -1.0, 1.0)
                 if abs(y) > 0.98:
                     self.output_clip[ch] = True
@@ -366,7 +456,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("output_wav", type=Path)
     ap.add_argument("--profile", type=Path, default=PROFILE_PATH)
     ap.add_argument("--mode", choices=["decode", "encode", "roundtrip"], default="decode")
-    ap.add_argument("--preset", choices=["universal", "auto_cal"], default="universal")
+    ap.add_argument("--preset", choices=["universal", "auto_cal", "restoration", "controlled_record"], default="universal")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--bypass", action="store_true")
     ap.add_argument("--override", action="append", default=[], help="Override as key=value (repeatable)")
