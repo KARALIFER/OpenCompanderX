@@ -37,9 +37,27 @@ static constexpr float kMaxBoostDb = 9.0f;
 static constexpr float kMaxCutDb = 24.0f;
 static constexpr float kAttackMs = 3.5f;
 static constexpr float kReleaseMs = 140.0f;
-static constexpr float kSidechainHpHz = 90.0f;
+static constexpr float kSidechainHpHz = 30.0f;
+static constexpr float kSidechainLpHz = 10000.0f;
 static constexpr float kSidechainShelfHz = 2800.0f;
 static constexpr float kSidechainShelfDb = 16.0f;
+static constexpr float kDetectorRmsMs = 8.0f;
+static constexpr bool  kAutoTrimEnabled = true;
+static constexpr float kAutoTrimMaxDb = 1.5f;
+static constexpr float kDropoutHoldMs = 0.0f;
+static constexpr float kDropoutHfDropDb = 10.0f;
+static constexpr float kDropoutLevelDropDb = 9.0f;
+static constexpr bool  kSaturationSoftfail = false;
+static constexpr float kSaturationThreshold = 0.90f;
+static constexpr float kSaturationKneeDb = 4.0f;
+static constexpr bool  kRestorationAutoTrimEnabled = true;
+static constexpr float kRestorationAutoTrimMaxDb = 2.0f;
+static constexpr float kRestorationDropoutHoldMs = 12.0f;
+static constexpr float kRestorationDropoutHfDropDb = 8.0f;
+static constexpr float kRestorationDropoutLevelDropDb = 7.0f;
+static constexpr bool  kRestorationSaturationSoftfail = true;
+static constexpr float kRestorationSaturationThreshold = 0.86f;
+static constexpr float kRestorationSaturationKneeDb = 6.0f;
 static constexpr float kDeemphHz = 1850.0f;
 static constexpr float kDeemphDb = -6.0f;
 static constexpr float kSoftClipDrive = 1.08f;
@@ -54,8 +72,10 @@ static constexpr float kEncMaxCutDb = 9.0f;
 static constexpr float kEncAttackMs = 3.5f;
 static constexpr float kEncReleaseMs = 140.0f;
 static constexpr float kEncSidechainHpHz = 90.0f;
+static constexpr float kEncSidechainLpHz = 10000.0f;
 static constexpr float kEncSidechainShelfHz = 2800.0f;
 static constexpr float kEncSidechainShelfDb = 14.0f;
+static constexpr float kEncDetectorRmsMs = 8.0f;
 static constexpr float kEncTiltHz = 1850.0f;
 static constexpr float kEncTiltDb = 5.0f;
 static constexpr float kEncSoftClipDrive = 1.04f;
@@ -74,6 +94,7 @@ enum GuardState : uint8_t { GUARD_IDLE = 0, GUARD_BRAKE_A = 1, GUARD_PROTECT_B =
 enum DeckType : uint8_t { DECK_SINGLE_LW = 0, DECK_DUAL_LW = 1 };
 enum TransportId : uint8_t { TRANSPORT_LW1 = 0, TRANSPORT_LW2 = 1 };
 enum ProfileSelect : uint8_t { PROFILE_SINGLE = 0, PROFILE_LW1 = 1, PROFILE_LW2 = 2, PROFILE_COMMON = 3 };
+enum DecoderOperatingMode : uint8_t { DECODER_STRICT_COMPATIBLE = 0, DECODER_RESTORATION = 1, DECODER_CONTROLLED_RECORD = 2 };
 
 
 static inline float clampf(float x, float lo, float hi) {
@@ -194,6 +215,26 @@ static void designHighShelf(Biquad &f, float fs, float hz, float gainDb, float s
   f.reset();
 }
 
+static void designLowpass(Biquad &f, float fs, float hz, float q = 0.7071f) {
+  hz = clampf(hz, 100.0f, fs * 0.45f);
+  const float w0 = 2.0f * 3.14159265359f * hz / fs;
+  const float cosw0 = cosf(w0);
+  const float sinw0 = sinf(w0);
+  const float alpha = sinw0 / (2.0f * q);
+  const float b0 = (1.0f - cosw0) * 0.5f;
+  const float b1 = 1.0f - cosw0;
+  const float b2 = (1.0f - cosw0) * 0.5f;
+  const float a0 = 1.0f + alpha;
+  const float a1 = -2.0f * cosw0;
+  const float a2 = 1.0f - alpha;
+  f.b0 = b0 / a0;
+  f.b1 = b1 / a0;
+  f.b2 = b2 / a0;
+  f.a1 = a1 / a0;
+  f.a2 = a2 / a0;
+  f.reset();
+}
+
 class AudioEffectOCXType2CodecStereo : public AudioStream {
 public:
   enum Mode : uint8_t { MODE_DECODE = 0, MODE_ENCODE = 1 };
@@ -247,13 +288,24 @@ public:
   void setAttackMs(float ms)         { attackMs = clampf(ms, 0.2f, 100.0f); recalcDetector(); }
   void setReleaseMs(float ms)        { releaseMs = clampf(ms, 5.0f, 1000.0f); recalcDetector(); }
   void setSidechainHpHz(float hz)    { sidechainHpHz = clampf(hz, 20.0f, 1000.0f); recalcSidechainFilters(); }
+  void setSidechainLpHz(float hz)    { sidechainLpHz = clampf(hz, 3000.0f, 16000.0f); recalcSidechainFilters(); }
   void setSidechainShelfHz(float hz) { sidechainShelfHz = clampf(hz, 500.0f, 12000.0f); recalcSidechainFilters(); }
   void setSidechainShelfDb(float db) { sidechainShelfDb = clampf(db, 0.0f, 24.0f); recalcSidechainFilters(); }
+  void setDetectorRmsMs(float ms)    { detectorRmsMs = clampf(ms, 0.5f, 80.0f); recalcDetector(); }
   void setDeemphHz(float hz)         { deemphHz = clampf(hz, 300.0f, 12000.0f); recalcDeemphFilter(); }
   void setDeemphDb(float db)         { deemphDb = clampf(db, -24.0f, 0.0f); recalcDeemphFilter(); }
   void setSoftClipDrive(float v)     { softClipDrive = clampf(v, 1.0f, 2.0f); }
   void setDcBlockHz(float hz)        { dcBlockHz = clampf(hz, 1.0f, 40.0f); recalcDcBlockers(); }
   void setHeadroomDb(float db)       { headroomDb = clampf(db, 0.0f, 6.0f); headroomGain = dbToLin(-headroomDb); }
+  void setAutoTrimEnabled(bool v)       { autoTrimEnabled = v; }
+  void setAutoTrimMaxDb(float db)       { autoTrimMaxDb = clampf(fabsf(db), 0.0f, 6.0f); }
+  void setDropoutHoldMs(float ms)       { dropoutHoldMs = clampf(ms, 0.0f, 40.0f); recalcDetector(); }
+  void setDropoutHfDropDb(float db)     { dropoutHfDropDb = clampf(db, 1.0f, 24.0f); }
+  void setDropoutLevelDropDb(float db)  { dropoutLevelDropDb = clampf(db, 1.0f, 24.0f); }
+  void setSaturationSoftfail(bool v)    { saturationSoftfail = v; }
+  void setSaturationThreshold(float v)  { saturationThreshold = clampf(v, 0.70f, 0.99f); }
+  void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
+  void setDecoderOperatingMode(DecoderOperatingMode m) { decoderMode = m; recalcDetector(); }
 
   float getInputTrimDb() const       { return inputTrimDb; }
   float getOutputTrimDb() const      { return outputTrimDb; }
@@ -262,13 +314,24 @@ public:
   float getAttackMs() const          { return attackMs; }
   float getReleaseMs() const         { return releaseMs; }
   float getSidechainHpHz() const     { return sidechainHpHz; }
+  float getSidechainLpHz() const     { return sidechainLpHz; }
   float getSidechainShelfHz() const  { return sidechainShelfHz; }
   float getSidechainShelfDb() const  { return sidechainShelfDb; }
+  float getDetectorRmsMs() const     { return detectorRmsMs; }
   float getDeemphHz() const          { return deemphHz; }
   float getDeemphDb() const          { return deemphDb; }
   float getSoftClipDrive() const     { return softClipDrive; }
   float getDcBlockHz() const         { return dcBlockHz; }
   float getHeadroomDb() const        { return headroomDb; }
+  bool getAutoTrimEnabled() const    { return autoTrimEnabled; }
+  float getAutoTrimMaxDb() const     { return autoTrimMaxDb; }
+  float getDropoutHoldMs() const     { return dropoutHoldMs; }
+  float getDropoutHfDropDb() const   { return dropoutHfDropDb; }
+  float getDropoutLevelDropDb() const { return dropoutLevelDropDb; }
+  bool getSaturationSoftfail() const { return saturationSoftfail; }
+  float getSaturationThreshold() const { return saturationThreshold; }
+  float getSaturationKneeDb() const  { return saturationKneeDb; }
+  DecoderOperatingMode getDecoderOperatingMode() const { return decoderMode; }
 
   bool hasInputClip() const          { return inputClipFlag; }
   bool hasOutputClip() const         { return outputClipFlag; }
@@ -292,8 +355,10 @@ public:
     clearClipFlags();
     for (int ch = 0; ch < 2; ++ch) {
       scHP[ch].reset();
+      scLP[ch].reset();
       scShelf[ch].reset();
       encScHP[ch].reset();
+      encScLP[ch].reset();
       encScShelf[ch].reset();
       deemph[ch].reset();
       encTilt[ch].reset();
@@ -301,7 +366,14 @@ public:
       encDcBlock[ch].reset();
     }
     linkedEnv2 = 1.0e-9f;
+    linkedRms2 = 1.0e-9f;
     encLinkedEnv2 = 1.0e-9f;
+    encLinkedRms2 = 1.0e-9f;
+    autoTrimDb = 0.0f;
+    dropoutHoldSamples = 0;
+    prevScRms = 1.0e-6f;
+    prevInRms = 1.0e-6f;
+    prevGainDb = 0.0f;
     noInterrupts();
     diagLastGainDb = 0.0f;
     diagLastEnvDb = -120.0f;
@@ -330,27 +402,53 @@ private:
   float maxBoostDb = 9.0f;
   float maxCutDb = 24.0f;
 
-  float sidechainHpHz = 90.0f;
+  float sidechainHpHz = OCXProfile::kSidechainHpHz;
+  float sidechainLpHz = OCXProfile::kSidechainLpHz;
   float sidechainShelfHz = 2800.0f;
   float sidechainShelfDb = 16.0f;
   Biquad scHP[2];
+  Biquad scLP[2];
   Biquad scShelf[2];
   float encSidechainHpHz = OCXProfile::kEncSidechainHpHz;
+  float encSidechainLpHz = OCXProfile::kEncSidechainLpHz;
   float encSidechainShelfHz = OCXProfile::kEncSidechainShelfHz;
   float encSidechainShelfDb = OCXProfile::kEncSidechainShelfDb;
   Biquad encScHP[2];
+  Biquad encScLP[2];
   Biquad encScShelf[2];
 
   float attackMs = 3.5f;
   float releaseMs = 140.0f;
+  float detectorRmsMs = OCXProfile::kDetectorRmsMs;
   float attackCoeff = 0.0f;
   float releaseCoeff = 0.0f;
+  float rmsCoeff = 0.0f;
   float linkedEnv2 = 1.0e-9f;
+  float linkedRms2 = 1.0e-9f;
   float encAttackMs = OCXProfile::kEncAttackMs;
   float encReleaseMs = OCXProfile::kEncReleaseMs;
+  float encDetectorRmsMs = OCXProfile::kEncDetectorRmsMs;
   float encAttackCoeff = 0.0f;
   float encReleaseCoeff = 0.0f;
+  float encRmsCoeff = 0.0f;
   float encLinkedEnv2 = 1.0e-9f;
+  float encLinkedRms2 = 1.0e-9f;
+  DecoderOperatingMode decoderMode = DECODER_STRICT_COMPATIBLE;
+  float autoTrimDb = 0.0f;
+  bool autoTrimEnabled = OCXProfile::kAutoTrimEnabled;
+  float autoTrimMaxDb = OCXProfile::kAutoTrimMaxDb;
+  float dropoutHoldMs = OCXProfile::kDropoutHoldMs;
+  float dropoutHfDropDb = OCXProfile::kDropoutHfDropDb;
+  float dropoutLevelDropDb = OCXProfile::kDropoutLevelDropDb;
+  bool saturationSoftfail = OCXProfile::kSaturationSoftfail;
+  float saturationThreshold = OCXProfile::kSaturationThreshold;
+  float saturationKneeDb = OCXProfile::kSaturationKneeDb;
+  float autoTrimCoeff = 0.0f;
+  uint16_t dropoutHoldSamples = 0;
+  uint16_t dropoutHoldCounter = 0;
+  float prevScRms = 1.0e-6f;
+  float prevInRms = 1.0e-6f;
+  float prevGainDb = 0.0f;
 
   float deemphHz = 1850.0f;
   float deemphDb = -6.0f;
@@ -426,21 +524,27 @@ private:
   void recalcDetector() {
     attackCoeff  = expf(-1.0f / (OCXProfile::kFs * attackMs  * 0.001f));
     releaseCoeff = expf(-1.0f / (OCXProfile::kFs * releaseMs * 0.001f));
+    rmsCoeff = expf(-1.0f / (OCXProfile::kFs * detectorRmsMs * 0.001f));
+    autoTrimCoeff = expf(-1.0f / (OCXProfile::kFs * 0.8f));
+    dropoutHoldSamples = (uint16_t)clampf(dropoutHoldMs * OCXProfile::kFs * 0.001f, 0.0f, 4095.0f);
   }
   void recalcEncoderDetector() {
     encAttackCoeff = expf(-1.0f / (OCXProfile::kFs * encAttackMs * 0.001f));
     encReleaseCoeff = expf(-1.0f / (OCXProfile::kFs * encReleaseMs * 0.001f));
+    encRmsCoeff = expf(-1.0f / (OCXProfile::kFs * encDetectorRmsMs * 0.001f));
   }
 
   void recalcSidechainFilters() {
     for (int ch = 0; ch < 2; ++ch) {
       designHighpass(scHP[ch], OCXProfile::kFs, sidechainHpHz, 0.7071f);
+      designLowpass(scLP[ch], OCXProfile::kFs, sidechainLpHz, 0.7071f);
       designHighShelf(scShelf[ch], OCXProfile::kFs, sidechainShelfHz, sidechainShelfDb, 0.8f);
     }
   }
   void recalcEncoderSidechainFilters() {
     for (int ch = 0; ch < 2; ++ch) {
       designHighpass(encScHP[ch], OCXProfile::kFs, encSidechainHpHz, 0.7071f);
+      designLowpass(encScLP[ch], OCXProfile::kFs, encSidechainLpHz, 0.7071f);
       designHighShelf(encScShelf[ch], OCXProfile::kFs, encSidechainShelfHz, encSidechainShelfDb, 0.8f);
     }
   }
@@ -466,18 +570,49 @@ private:
   }
 
   inline void processDecode(float xL, float xR, float &outL, float &outR) {
-    const float scL = scShelf[0].process(scHP[0].process(xL));
-    const float scR = scShelf[1].process(scHP[1].process(xR));
+    const float scL = scShelf[0].process(scLP[0].process(scHP[0].process(xL)));
+    const float scR = scShelf[1].process(scLP[1].process(scHP[1].process(xR)));
     const float lowProxy = 0.5f * (fabsf(xL) + fabsf(xR));
     const float highProxy = 0.5f * (fabsf(scL) + fabsf(scR));
     diagLowProxySum += lowProxy;
     diagHighProxySum += highProxy;
     const float linkedP = fmaxf(scL * scL, scR * scR);
-    const float coeff = (linkedP > linkedEnv2) ? attackCoeff : releaseCoeff;
-    linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedP);
+    linkedRms2 = sanitizef(rmsCoeff * linkedRms2 + (1.0f - rmsCoeff) * linkedP);
+    const float coeff = (linkedRms2 > linkedEnv2) ? attackCoeff : releaseCoeff;
+    linkedEnv2 = sanitizef(coeff * linkedEnv2 + (1.0f - coeff) * linkedRms2);
     const float env = sqrtf(linkedEnv2 + 1.0e-12f);
-    const float rawGainDb = (linToDb(env) - referenceDb) * strength;
+    if (autoTrimEnabled && decoderMode != DECODER_CONTROLLED_RECORD) {
+      const float envDb = linToDb(env);
+      if (envDb < -36.0f) {
+        const float target = clampf((referenceDb - envDb) * 0.12f, -autoTrimMaxDb, autoTrimMaxDb);
+        autoTrimDb = sanitizef(autoTrimCoeff * autoTrimDb + (1.0f - autoTrimCoeff) * target);
+      }
+    }
+    const float rawGainDb = (linToDb(env) - referenceDb + autoTrimDb) * strength;
     float gainDb = clampf(rawGainDb, -maxCutDb, maxBoostDb);
+    if (decoderMode == DECODER_RESTORATION) {
+      const float scRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
+      const float inRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
+      const float hfDropDb = linToDb(prevScRms / fmaxf(scRms, 1.0e-12f));
+      const float levelDropDb = linToDb(prevInRms / fmaxf(inRms, 1.0e-12f));
+      if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb) dropoutHoldCounter = dropoutHoldSamples;
+      if (dropoutHoldCounter > 0) {
+        --dropoutHoldCounter;
+        gainDb = 0.8f * prevGainDb + 0.2f * gainDb;
+      }
+      const float peak = fmaxf(fabsf(xL), fabsf(xR));
+      if (saturationSoftfail && peak > saturationThreshold && gainDb > 0.0f) {
+        const float over = clampf((peak - saturationThreshold) / fmaxf(1.0e-4f, 1.0f - saturationThreshold), 0.0f, 1.0f);
+        gainDb -= over * saturationKneeDb;
+      }
+      prevScRms = scRms;
+      prevInRms = inRms;
+    } else {
+      prevScRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
+      prevInRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
+      dropoutHoldCounter = 0;
+    }
+    prevGainDb = gainDb;
     if (rawGainDb <= -maxCutDb) ++diagClampCutHitCount;
     if (rawGainDb >=  maxBoostDb) ++diagClampBoostHitCount;
     if (gainDb <= (-maxCutDb + 1.0f)) ++diagNearCutCount;
@@ -495,11 +630,12 @@ private:
   }
 
   inline void processEncode(float xL, float xR, float &outL, float &outR) {
-    const float scL = encScShelf[0].process(encScHP[0].process(xL));
-    const float scR = encScShelf[1].process(encScHP[1].process(xR));
+    const float scL = encScShelf[0].process(encScLP[0].process(encScHP[0].process(xL)));
+    const float scR = encScShelf[1].process(encScLP[1].process(encScHP[1].process(xR)));
     const float linkedP = fmaxf(scL * scL, scR * scR);
-    const float coeff = (linkedP > encLinkedEnv2) ? encAttackCoeff : encReleaseCoeff;
-    encLinkedEnv2 = sanitizef(coeff * encLinkedEnv2 + (1.0f - coeff) * linkedP);
+    encLinkedRms2 = sanitizef(encRmsCoeff * encLinkedRms2 + (1.0f - encRmsCoeff) * linkedP);
+    const float coeff = (encLinkedRms2 > encLinkedEnv2) ? encAttackCoeff : encReleaseCoeff;
+    encLinkedEnv2 = sanitizef(coeff * encLinkedEnv2 + (1.0f - coeff) * encLinkedRms2);
     const float env = sqrtf(encLinkedEnv2 + 1.0e-12f);
     const float rawGainDb = -((linToDb(env) - encReferenceDb) * encStrength);
     const float gainDb = clampf(rawGainDb, -encMaxCutDb, encMaxBoostDb);
@@ -743,6 +879,7 @@ uint32_t lastWarnedAllocFailCount = 0;
 unsigned long autoStateEnterMs = 0;
 unsigned long lastAutoMeasureMs = 0;
 PresetId currentPreset = PRESET_UNIVERSAL;
+DecoderOperatingMode decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
 AutoCalState autoCalState = AUTO_IDLE;
 bool autoCalValid = false;
 float autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -915,6 +1052,7 @@ struct PersistSettings {
   uint8_t deckType;
   uint8_t activeTransport;
   uint8_t selectedProfile;
+  uint8_t decoderOperatingMode;
   uint8_t autoCalValid;
   uint8_t guardEnabled;
   float autoCalReferenceDb;
@@ -928,7 +1066,7 @@ struct PersistSettings {
   uint32_t checksum;
 };
 static constexpr uint32_t kSettingsMagic = 0x4F435831u;
-static constexpr uint16_t kSettingsVersion = 4;
+static constexpr uint16_t kSettingsVersion = 5;
 static constexpr int kSettingsAddr = 0;
 
 uint32_t settingsChecksum(const uint8_t *p, size_t n) {
@@ -945,6 +1083,15 @@ const char* presetLabel(uint8_t id) {
     case PRESET_AUTO_CAL: return "AUTO_CAL";
     case PRESET_UNIVERSAL:
     default: return "UNIVERSAL";
+  }
+}
+
+const char* decoderModeLabel(uint8_t m) {
+  switch ((DecoderOperatingMode)m) {
+    case DECODER_RESTORATION: return "RESTORATION";
+    case DECODER_CONTROLLED_RECORD: return "CONTROLLED_RECORD";
+    case DECODER_STRICT_COMPATIBLE:
+    default: return "STRICT_COMPATIBLE";
   }
 }
 
@@ -989,6 +1136,28 @@ bool profileSelectionValid(ProfileSelect p) {
   return (p == PROFILE_LW2) ? (profileStore.lw2Valid != 0) : (profileStore.lw1Valid != 0);
 }
 
+void applyDecoderOperatingModeTuning() {
+  if (decoderOperatingMode == DECODER_RESTORATION) {
+    ocx.setAutoTrimEnabled(OCXProfile::kRestorationAutoTrimEnabled);
+    ocx.setAutoTrimMaxDb(OCXProfile::kRestorationAutoTrimMaxDb);
+    ocx.setDropoutHoldMs(OCXProfile::kRestorationDropoutHoldMs);
+    ocx.setDropoutHfDropDb(OCXProfile::kRestorationDropoutHfDropDb);
+    ocx.setDropoutLevelDropDb(OCXProfile::kRestorationDropoutLevelDropDb);
+    ocx.setSaturationSoftfail(OCXProfile::kRestorationSaturationSoftfail);
+    ocx.setSaturationThreshold(OCXProfile::kRestorationSaturationThreshold);
+    ocx.setSaturationKneeDb(OCXProfile::kRestorationSaturationKneeDb);
+  } else {
+    ocx.setAutoTrimEnabled(OCXProfile::kAutoTrimEnabled);
+    ocx.setAutoTrimMaxDb(OCXProfile::kAutoTrimMaxDb);
+    ocx.setDropoutHoldMs(OCXProfile::kDropoutHoldMs);
+    ocx.setDropoutHfDropDb(OCXProfile::kDropoutHfDropDb);
+    ocx.setDropoutLevelDropDb(OCXProfile::kDropoutLevelDropDb);
+    ocx.setSaturationSoftfail(OCXProfile::kSaturationSoftfail);
+    ocx.setSaturationThreshold(OCXProfile::kSaturationThreshold);
+    ocx.setSaturationKneeDb(OCXProfile::kSaturationKneeDb);
+  }
+}
+
 void applyEffectiveDecoderSettings() {
   const float effectiveTrim = clampf(staticOutputTrimDb + guardTrimOffsetDb, -18.0f, 18.0f);
   const float effectiveHeadroom = clampf(staticHeadroomDb + guardHeadroomOffsetDb, 0.0f, 6.0f);
@@ -997,6 +1166,8 @@ void applyEffectiveDecoderSettings() {
   ocx.setOutputTrimDb(effectiveTrim);
   ocx.setHeadroomDb(effectiveHeadroom);
   ocx.setMaxBoostDb(effectiveMaxBoost);
+  ocx.setDecoderOperatingMode(decoderOperatingMode);
+  applyDecoderOperatingModeTuning();
 }
 
 const char* autoCalStateLabel(uint8_t s) {
@@ -1018,8 +1189,10 @@ void applyDecoderPreset(uint8_t id) {
   ocx.setAttackMs(OCXProfile::kAttackMs);
   ocx.setReleaseMs(OCXProfile::kReleaseMs);
   ocx.setSidechainHpHz(OCXProfile::kSidechainHpHz);
+  ocx.setSidechainLpHz(OCXProfile::kSidechainLpHz);
   ocx.setSidechainShelfHz(OCXProfile::kSidechainShelfHz);
   ocx.setSidechainShelfDb(OCXProfile::kSidechainShelfDb);
+  ocx.setDetectorRmsMs(OCXProfile::kDetectorRmsMs);
   ocx.setDeemphHz(OCXProfile::kDeemphHz);
   ocx.setDeemphDb(OCXProfile::kDeemphDb);
   ocx.setSoftClipDrive(OCXProfile::kSoftClipDrive);
@@ -1054,6 +1227,7 @@ void persistSettings() {
   s.deckType = static_cast<uint8_t>(deckType);
   s.activeTransport = static_cast<uint8_t>(activeTransport);
   s.selectedProfile = static_cast<uint8_t>(selectedProfile);
+  s.decoderOperatingMode = static_cast<uint8_t>(decoderOperatingMode);
   s.autoCalValid = autoCalValid ? 1 : 0;
   s.guardEnabled = guardEnabled ? 1 : 0;
   s.autoCalReferenceDb = autoCalReferenceDb;
@@ -1087,13 +1261,15 @@ void loadSettingsOrFactory() {
                   s.presetId <= PRESET_AUTO_CAL &&
                   s.deckType <= DECK_DUAL_LW &&
                   s.activeTransport <= TRANSPORT_LW2 &&
-                  s.selectedProfile <= PROFILE_COMMON;
+                  s.selectedProfile <= PROFILE_COMMON &&
+                  s.decoderOperatingMode <= DECODER_CONTROLLED_RECORD;
   if (ok) {
     ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
     currentPreset = static_cast<PresetId>(s.presetId);
     deckType = static_cast<DeckType>(s.deckType);
     activeTransport = static_cast<TransportId>(s.activeTransport);
     selectedProfile = static_cast<ProfileSelect>(s.selectedProfile);
+    decoderOperatingMode = static_cast<DecoderOperatingMode>(s.decoderOperatingMode);
     autoCalValid = s.autoCalValid != 0;
     autoCalReferenceDb = clampf(s.autoCalReferenceDb, -30.0f, -10.0f);
     autoCalOutputTrimDb = clampf(s.autoCalOutputTrimDb, -6.0f, 0.0f);
@@ -1115,6 +1291,7 @@ void loadSettingsOrFactory() {
     deckType = DECK_SINGLE_LW;
     activeTransport = TRANSPORT_LW1;
     selectedProfile = PROFILE_SINGLE;
+    decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
     profileStore = ProfileStore{};
     autoCalValid = false;
     guardEnabled = true;
@@ -1139,6 +1316,7 @@ void factoryResetSettings() {
   s.deckType = static_cast<uint8_t>(DECK_SINGLE_LW);
   s.activeTransport = static_cast<uint8_t>(TRANSPORT_LW1);
   s.selectedProfile = static_cast<uint8_t>(PROFILE_SINGLE);
+  s.decoderOperatingMode = static_cast<uint8_t>(DECODER_STRICT_COMPATIBLE);
   s.autoCalValid = 0;
   s.guardEnabled = 1;
   s.autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -1158,6 +1336,7 @@ void factoryResetSettings() {
   deckType = DECK_SINGLE_LW;
   activeTransport = TRANSPORT_LW1;
   selectedProfile = PROFILE_SINGLE;
+  decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
   profileStore = ProfileStore{};
   guardEnabled = true;
   guardTrimOffsetDb = 0.0f;
@@ -1736,6 +1915,7 @@ void printHelp() {
   Serial.println(F("  M  : print codec mode"));
   Serial.println(F("  j  : print preset"));
   Serial.println(F("  u  : select preset UNIVERSAL"));
+  Serial.println(F("  U  : cycle decoder operating mode STRICT -> RESTORATION -> CONTROLLED_RECORD"));
   Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
   Serial.println(F("  1/2: set deck type SINGLE_LW / DUAL_LW"));
   Serial.println(F("  [ ]: set active transport LW1 / LW2"));
@@ -1767,7 +1947,7 @@ void printHelp() {
   Serial.println(F("  t  : toggle 400 Hz calibration tone"));
   Serial.println(F("  z/Z: tone level -/+ 1 dB"));
   Serial.println(F("  k  : cycle tone channel mode BOTH -> LEFT -> RIGHT"));
-  Serial.println(F("  Detector: stereo-linked peak detector (shared gain on L/R)."));
+  Serial.println(F("  Detector: stereo-linked true-RMS sidechain (HP + LP + HF weighting)."));
   Serial.println(F("  Snapshot includes clamp-hit/near-limit stats for maxCut/maxBoost interpretation."));
   Serial.println(F("  NOTE: AUTO_CAL uses a dbx Type II encoded 1 kHz tape reference as static base."));
   Serial.println(F("  NOTE: 0/VU belongs to tape recording reference; playback level depends on deck/player output."));
@@ -1821,6 +2001,7 @@ void printCompactTelemetryLine() {
   Serial.print(F(" outClipNew=")); Serial.print(clipDelta.outputNew);
   Serial.print(F(" bypass=")); Serial.print(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
+  Serial.print(F(" decMode=")); Serial.print(decoderModeLabel(decoderOperatingMode));
   Serial.print(F(" auto=")); Serial.print(autoCalStateLabel(autoCalState));
   Serial.print(F(" autoValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
   Serial.print(F(" deck=")); Serial.print(deckTypeLabel(deckType));
@@ -1946,6 +2127,7 @@ void printStatus() {
   Serial.println(F("==== OCX TYPE 2 STATUS ===="));
   Serial.print(F("Mode: ")); Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE"));
   Serial.print(F("Preset: ")); Serial.println(presetLabel(currentPreset));
+  Serial.print(F("Decoder operating mode: ")); Serial.println(decoderModeLabel(decoderOperatingMode));
   Serial.print(F("Deck type: ")); Serial.println(deckTypeLabel(deckType));
   Serial.print(F("Active transport: ")); Serial.println(transportLabel(activeTransport));
   Serial.print(F("Selected profile: ")); Serial.println(profileSelectLabel(selectedProfile));
@@ -1970,10 +2152,18 @@ void printStatus() {
   Serial.print(F("Guard trim offset: ")); Serial.print(guardTrimOffsetDb, 2); Serial.println(F(" dB"));
   Serial.print(F("Strength: ")); Serial.println(ocx.getStrength(), 3);
   Serial.print(F("Reference (static): ")); Serial.print(ocx.getReferenceDb(), 2); Serial.println(F(" dB"));
-  Serial.println(F("Detector: stereo-linked peak (max of L/R sidechain power)."));
+  Serial.println(F("Detector: stereo-linked true RMS (max-link power -> RMS smoothing -> attack/release envelope)."));
   Serial.print(F("Attack: ")); Serial.print(ocx.getAttackMs(), 2); Serial.println(F(" ms"));
   Serial.print(F("Release: ")); Serial.print(ocx.getReleaseMs(), 2); Serial.println(F(" ms"));
+  Serial.print(F("Detector RMS window: ")); Serial.print(ocx.getDetectorRmsMs(), 2); Serial.println(F(" ms"));
+  Serial.print(F("Auto-trim enabled/max: ")); Serial.print(ocx.getAutoTrimEnabled() ? F("YES") : F("NO")); Serial.print(F(" / ")); Serial.print(ocx.getAutoTrimMaxDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Dropout hold/hf/level: ")); Serial.print(ocx.getDropoutHoldMs(), 2); Serial.print(F(" ms / "));
+  Serial.print(ocx.getDropoutHfDropDb(), 2); Serial.print(F(" dB / "));
+  Serial.print(ocx.getDropoutLevelDropDb(), 2); Serial.println(F(" dB"));
+  Serial.print(F("Saturation soft-fail thr/knee: ")); Serial.print(ocx.getSaturationSoftfail() ? F("ON") : F("OFF")); Serial.print(F(" / "));
+  Serial.print(ocx.getSaturationThreshold(), 3); Serial.print(F(" / ")); Serial.print(ocx.getSaturationKneeDb(), 2); Serial.println(F(" dB"));
   Serial.print(F("Sidechain HP: ")); Serial.print(ocx.getSidechainHpHz(), 1); Serial.println(F(" Hz"));
+  Serial.print(F("Sidechain LP: ")); Serial.print(ocx.getSidechainLpHz(), 1); Serial.println(F(" Hz"));
   Serial.print(F("Sidechain shelf: ")); Serial.print(ocx.getSidechainShelfDb(), 1); Serial.print(F(" dB @ ")); Serial.print(ocx.getSidechainShelfHz(), 0); Serial.println(F(" Hz"));
   Serial.print(F("De-emphasis shelf: ")); Serial.print(ocx.getDeemphDb(), 2); Serial.print(F(" dB @ ")); Serial.print(ocx.getDeemphHz(), 0); Serial.println(F(" Hz"));
   Serial.print(F("Headroom (effective): ")); Serial.print(ocx.getHeadroomDb(), 2); Serial.println(F(" dB"));
@@ -2161,6 +2351,11 @@ void handleSerial() {
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
       case 'j': Serial.println(presetLabel(currentPreset)); break;
       case 'u': currentPreset = PRESET_UNIVERSAL; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
+      case 'U':
+        decoderOperatingMode = static_cast<DecoderOperatingMode>((static_cast<uint8_t>(decoderOperatingMode) + 1U) % 3U);
+        applyEffectiveDecoderSettings();
+        Serial.print(F("[CFG] decoder_mode=")); Serial.println(decoderModeLabel(decoderOperatingMode));
+        break;
       case '1':
         deckType = DECK_SINGLE_LW;
         activeTransport = TRANSPORT_LW1;
