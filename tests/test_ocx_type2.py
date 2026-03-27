@@ -267,6 +267,59 @@ def test_firmware_restoration_parameters_are_wired_without_magic_thresholds():
     assert "ocx.setSaturationKneeDb(OCXProfile::kRestorationSaturationKneeDb);" in ino
 
 
+def test_sim_dropout_hold_requires_hf_and_level_drop():
+    fs = 44_100
+    p = DecoderParams.from_profile(
+        PROFILE_PATH,
+        preset="restoration",
+        dropout_hold_ms=20.0,
+        dropout_hf_drop_db=6.0,
+        dropout_level_drop_db=6.0,
+    )
+    d = Decoder(fs, p)
+    _ = d._gain_db(env=0.2, x_pair=(0.2, 0.2), sc_pair=(0.2, 0.2))
+    assert d.dropout_counter == 0
+    # HF drop only, no broadband level drop -> must not trigger hold.
+    _ = d._gain_db(env=0.2, x_pair=(0.2, 0.2), sc_pair=(0.02, 0.02))
+    assert d.dropout_counter == 0
+    # HF drop + broadband level drop -> hold must trigger.
+    _ = d._gain_db(env=0.02, x_pair=(0.02, 0.02), sc_pair=(0.002, 0.002))
+    assert d.dropout_counter > 0
+
+
+def test_sim_strict_mode_does_not_activate_restoration_dropout_logic():
+    fs = 44_100
+    p = DecoderParams.from_profile(
+        PROFILE_PATH,
+        preset="universal",
+        operation_mode="strict_compatible",
+        dropout_hold_ms=40.0,
+        dropout_hf_drop_db=3.0,
+        dropout_level_drop_db=3.0,
+    )
+    d = Decoder(fs, p)
+    _ = d._gain_db(env=0.2, x_pair=(0.2, 0.2), sc_pair=(0.2, 0.2))
+    _ = d._gain_db(env=0.01, x_pair=(0.01, 0.01), sc_pair=(0.001, 0.001))
+    assert d.dropout_counter == 0
+
+
+def test_sim_saturation_softfail_reduces_restoration_gain_on_hot_signal():
+    fs = 44_100
+    base = DecoderParams.from_profile(PROFILE_PATH, preset="restoration", saturation_softfail=False)
+    soft = DecoderParams.from_profile(
+        PROFILE_PATH,
+        preset="restoration",
+        saturation_softfail=True,
+        saturation_threshold=0.8,
+        saturation_knee_db=8.0,
+    )
+    d_base = Decoder(fs, base)
+    d_soft = Decoder(fs, soft)
+    g_base = d_base._gain_db(env=0.5, x_pair=(0.95, 0.95), sc_pair=(0.05, 0.05))
+    g_soft = d_soft._gain_db(env=0.5, x_pair=(0.95, 0.95), sc_pair=(0.05, 0.05))
+    assert g_soft < g_base
+
+
 def test_segment_meta_collector_keeps_real_per_segment_values():
     c = SegmentMetaCollector()
     c.add_segment(duration_blocks=410, peak_avg=0.41, tone_avg=0.73, peak_spread=0.03)

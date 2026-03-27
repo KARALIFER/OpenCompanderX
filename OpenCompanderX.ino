@@ -372,6 +372,7 @@ public:
     autoTrimDb = 0.0f;
     dropoutHoldSamples = 0;
     prevScRms = 1.0e-6f;
+    prevInRms = 1.0e-6f;
     prevGainDb = 0.0f;
     noInterrupts();
     diagLastGainDb = 0.0f;
@@ -401,7 +402,7 @@ private:
   float maxBoostDb = 9.0f;
   float maxCutDb = 24.0f;
 
-  float sidechainHpHz = 90.0f;
+  float sidechainHpHz = OCXProfile::kSidechainHpHz;
   float sidechainLpHz = OCXProfile::kSidechainLpHz;
   float sidechainShelfHz = 2800.0f;
   float sidechainShelfDb = 16.0f;
@@ -446,6 +447,7 @@ private:
   uint16_t dropoutHoldSamples = 0;
   uint16_t dropoutHoldCounter = 0;
   float prevScRms = 1.0e-6f;
+  float prevInRms = 1.0e-6f;
   float prevGainDb = 0.0f;
 
   float deemphHz = 1850.0f;
@@ -592,7 +594,7 @@ private:
       const float scRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
       const float inRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
       const float hfDropDb = linToDb(prevScRms / fmaxf(scRms, 1.0e-12f));
-      const float levelDropDb = linToDb(prevScRms / fmaxf(inRms, 1.0e-12f));
+      const float levelDropDb = linToDb(prevInRms / fmaxf(inRms, 1.0e-12f));
       if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb) dropoutHoldCounter = dropoutHoldSamples;
       if (dropoutHoldCounter > 0) {
         --dropoutHoldCounter;
@@ -604,8 +606,10 @@ private:
         gainDb -= over * saturationKneeDb;
       }
       prevScRms = scRms;
+      prevInRms = inRms;
     } else {
       prevScRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
+      prevInRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
       dropoutHoldCounter = 0;
     }
     prevGainDb = gainDb;

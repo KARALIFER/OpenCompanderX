@@ -304,6 +304,7 @@ class _CompanderCore:
         self.auto_trim_db = 0.0
         self.auto_trim_coeff = math.exp(-1.0 / max(self.fs * 0.8, 1.0))
         self.prev_sc_rms = 1.0e-6
+        self.prev_in_rms = 1.0e-6
         self.dropout_hold_samples = int(max(0.0, float(getattr(params, "dropout_hold_ms", 0.0))) * self.fs * 0.001)
         self.dropout_hf_drop_db = float(getattr(params, "dropout_hf_drop_db", 10.0))
         self.dropout_level_drop_db = float(getattr(params, "dropout_level_drop_db", 9.0))
@@ -325,6 +326,7 @@ class _CompanderCore:
         self.link_env2 = 1.0e-9
         self.auto_trim_db = 0.0
         self.prev_sc_rms = 1.0e-6
+        self.prev_in_rms = 1.0e-6
         self.dropout_counter = 0
         self.prev_gain_db = 0.0
         self.input_clip[:] = False
@@ -351,7 +353,7 @@ class _CompanderCore:
             sc_rms = math.sqrt(0.5 * (sc_pair[0] * sc_pair[0] + sc_pair[1] * sc_pair[1]) + 1.0e-12)
             in_rms = math.sqrt(0.5 * (x_pair[0] * x_pair[0] + x_pair[1] * x_pair[1]) + 1.0e-12)
             hf_drop_db = 20.0 * math.log10(max(self.prev_sc_rms, 1.0e-12) / max(sc_rms, 1.0e-12))
-            level_drop_db = 20.0 * math.log10(max(abs(self.prev_sc_rms), 1.0e-12) / max(in_rms, 1.0e-12))
+            level_drop_db = 20.0 * math.log10(max(abs(self.prev_in_rms), 1.0e-12) / max(in_rms, 1.0e-12))
             if hf_drop_db > self.dropout_hf_drop_db and level_drop_db > self.dropout_level_drop_db:
                 self.dropout_counter = self.dropout_hold_samples
             if self.dropout_counter > 0:
@@ -363,6 +365,7 @@ class _CompanderCore:
                     over = clamp((peak - self.saturation_threshold) / max(1.0e-6, 1.0 - self.saturation_threshold), 0.0, 1.0)
                     gain_db -= over * self.saturation_knee_db
         self.prev_sc_rms = math.sqrt(0.5 * (sc_pair[0] * sc_pair[0] + sc_pair[1] * sc_pair[1]) + 1.0e-12)
+        self.prev_in_rms = math.sqrt(0.5 * (x_pair[0] * x_pair[0] + x_pair[1] * x_pair[1]) + 1.0e-12)
         self.prev_gain_db = gain_db
         self.gain_db_log.append(float(gain_db))
         return gain_db
