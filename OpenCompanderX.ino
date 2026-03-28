@@ -95,6 +95,7 @@ enum DeckType : uint8_t { DECK_SINGLE_LW = 0, DECK_DUAL_LW = 1 };
 enum TransportId : uint8_t { TRANSPORT_LW1 = 0, TRANSPORT_LW2 = 1 };
 enum ProfileSelect : uint8_t { PROFILE_SINGLE = 0, PROFILE_LW1 = 1, PROFILE_LW2 = 2, PROFILE_COMMON = 3 };
 enum DecoderOperatingMode : uint8_t { DECODER_STRICT_COMPATIBLE = 0, DECODER_RESTORATION = 1, DECODER_CONTROLLED_RECORD = 2 };
+enum PlaybackSafetyMode : uint8_t { SAFETY_STRICT_REFERENCE = 0, SAFETY_STRICT_SAFE = 1, SAFETY_PLAYBACK_ADAPTIVE = 2 };
 
 
 static inline float clampf(float x, float lo, float hi) {
@@ -238,7 +239,7 @@ static void designLowpass(Biquad &f, float fs, float hz, float q = 0.7071f) {
 class AudioEffectOCXType2CodecStereo : public AudioStream {
 public:
   enum Mode : uint8_t { MODE_DECODE = 0, MODE_ENCODE = 1 };
-  AudioEffectOCXType2CodecStereo() : AudioStream(2, inputQueueArray) { recalcAll(); resetState(); }
+  AudioEffectOCXType2CodecStereo() : AudioStream(2, inputQueueArray) { recalcAll(); resetState(); armOutputSoftStart(); }
   virtual void update(void);
   struct DiagSnapshot {
     float inputPeakL = 0.0f;
@@ -275,9 +276,9 @@ public:
     float highProxyMean = 0.0f;
   };
 
-  void setBypass(bool v)             { bypass = v; }
+  void setBypass(bool v)             { if (bypass != v) { bypass = v; armOutputSoftStart(); } }
   bool getBypass() const             { return bypass; }
-  void setMode(Mode m)               { mode = m; }
+  void setMode(Mode m)               { if (mode != m) { mode = m; armOutputSoftStart(); } }
   Mode getMode() const               { return mode; }
   void setInputTrimDb(float db)      { inputTrimDb = clampf(db, -18.0f, 18.0f); inputGain = dbToLin(inputTrimDb); }
   void setOutputTrimDb(float db)     { outputTrimDb = clampf(db, -18.0f, 18.0f); outputGain = dbToLin(outputTrimDb); }
@@ -305,7 +306,8 @@ public:
   void setSaturationSoftfail(bool v)    { saturationSoftfail = v; }
   void setSaturationThreshold(float v)  { saturationThreshold = clampf(v, 0.70f, 0.99f); }
   void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
-  void setDecoderOperatingMode(DecoderOperatingMode m) { decoderMode = m; recalcDetector(); }
+  void setDecoderOperatingMode(DecoderOperatingMode m) { if (decoderMode != m) armOutputSoftStart(); decoderMode = m; recalcDetector(); }
+  void armOutputSoftStart() { outputSoftStartSamplesRemaining = kOutputSoftStartSamples; }
 
   float getInputTrimDb() const       { return inputTrimDb; }
   float getOutputTrimDb() const      { return outputTrimDb; }
@@ -374,6 +376,7 @@ public:
     prevScRms = 1.0e-6f;
     prevInRms = 1.0e-6f;
     prevGainDb = 0.0f;
+    outputSoftStartSamplesRemaining = kOutputSoftStartSamples;
     noInterrupts();
     diagLastGainDb = 0.0f;
     diagLastEnvDb = -120.0f;
@@ -381,6 +384,8 @@ public:
   }
 
 private:
+  static constexpr float kOutputSoftStartMs = 80.0f;
+  static constexpr uint16_t kOutputSoftStartSamples = (uint16_t)(OCXProfile::kFs * (kOutputSoftStartMs * 0.001f));
   audio_block_t *inputQueueArray[2];
   Mode mode = MODE_DECODE;
   bool  bypass = false;
@@ -503,6 +508,7 @@ private:
   float diagHighProxySum = 0.0f;
   uint32_t lastReportedInputClipCount = 0;
   uint32_t lastReportedOutputClipCount = 0;
+  uint16_t outputSoftStartSamplesRemaining = 0;
 
   void recalcAll() {
     setInputTrimDb(inputTrimDb);
@@ -560,8 +566,8 @@ private:
     for (int ch = 0; ch < 2; ++ch) encDcBlock[ch].design(OCXProfile::kFs, encDcBlockHz);
   }
 
-  inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive) {
-    y = clampf(softClip(y * outGain * roomGain, clipDrive), -1.0f, 1.0f);
+  inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive, float softStartGain) {
+    y = clampf(softClip(y * outGain * roomGain * softStartGain, clipDrive), -1.0f, 1.0f);
     if (fabsf(y) > 0.98f) {
       outputClipFlag = true;
       ++outputClipCount;
@@ -569,7 +575,7 @@ private:
     return sanitizef(y);
   }
 
-  inline void processDecode(float xL, float xR, float &outL, float &outR) {
+  inline void processDecode(float xL, float xR, float &outL, float &outR, float softStartGain) {
     const float scL = scShelf[0].process(scLP[0].process(scHP[0].process(xL)));
     const float scR = scShelf[1].process(scLP[1].process(scHP[1].process(xR)));
     const float lowProxy = 0.5f * (fabsf(xL) + fabsf(xR));
@@ -625,11 +631,11 @@ private:
     ++diagDecodedSampleCount;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(deemph[0].process(xL * gainLin), outputGain, headroomGain, softClipDrive);
-    outR = finalizeOutput(deemph[1].process(xR * gainLin), outputGain, headroomGain, softClipDrive);
+    outL = finalizeOutput(deemph[0].process(xL * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
+    outR = finalizeOutput(deemph[1].process(xR * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
   }
 
-  inline void processEncode(float xL, float xR, float &outL, float &outR) {
+  inline void processEncode(float xL, float xR, float &outL, float &outR, float softStartGain) {
     const float scL = encScShelf[0].process(encScLP[0].process(encScHP[0].process(xL)));
     const float scR = encScShelf[1].process(encScLP[1].process(encScHP[1].process(xR)));
     const float linkedP = fmaxf(scL * scL, scR * scR);
@@ -642,11 +648,17 @@ private:
     diagLastGainDb = gainDb;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(encTilt[0].process(xL * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive);
-    outR = finalizeOutput(encTilt[1].process(xR * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive);
+    outL = finalizeOutput(encTilt[0].process(xL * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
+    outR = finalizeOutput(encTilt[1].process(xR * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
   }
 
   inline void processStereo(float inL, float inR, float &outL, float &outR) {
+    float softStartGain = 1.0f;
+    if (outputSoftStartSamplesRemaining > 0) {
+      const float t = 1.0f - ((float)outputSoftStartSamplesRemaining / (float)kOutputSoftStartSamples);
+      softStartGain = clampf(t * t, 0.0f, 1.0f);
+      --outputSoftStartSamplesRemaining;
+    }
     const float absInL = fabsf(inL);
     const float absInR = fabsf(inR);
     if (absInL > diagInputPeakL) diagInputPeakL = absInL;
@@ -673,8 +685,8 @@ private:
 
     if (bypass) {
       // Bypass keeps output protection (headroom + soft clip), so it is not a hard transparent relay.
-      outL = finalizeOutput(xL, outputGain, headroomGain, softClipDrive);
-      outR = finalizeOutput(xR, outputGain, headroomGain, softClipDrive);
+      outL = finalizeOutput(xL, outputGain, headroomGain, softClipDrive, softStartGain);
+      outR = finalizeOutput(xR, outputGain, headroomGain, softClipDrive, softStartGain);
       ++diagBypassSampleCount;
       const float absOutL = fabsf(outL);
       const float absOutR = fabsf(outR);
@@ -689,8 +701,8 @@ private:
       return;
     }
 
-    if (mode == MODE_ENCODE) processEncode(xL, xR, outL, outR);
-    else processDecode(xL, xR, outL, outR);
+    if (mode == MODE_ENCODE) processEncode(xL, xR, outL, outR, softStartGain);
+    else processDecode(xL, xR, outL, outR, softStartGain);
     const float absOutL = fabsf(outL);
     const float absOutR = fabsf(outR);
     if (absOutL > diagOutputPeakL) diagOutputPeakL = absOutL;
@@ -880,6 +892,7 @@ unsigned long autoStateEnterMs = 0;
 unsigned long lastAutoMeasureMs = 0;
 PresetId currentPreset = PRESET_UNIVERSAL;
 DecoderOperatingMode decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
+PlaybackSafetyMode playbackSafetyMode = SAFETY_STRICT_SAFE;
 AutoCalState autoCalState = AUTO_IDLE;
 bool autoCalValid = false;
 float autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -908,6 +921,12 @@ uint16_t guardWindowNearLimit10s = 0;
 uint16_t guardWindowBoostClamp10s = 0;
 GuardState guardState = GUARD_IDLE;
 const char* guardReason = "boot";
+const char* guardTriggerSource = "none";
+const char* guardRelaxBlockedBy = "none";
+float guardTriggerValue = 0.0f;
+float guardTriggerThreshold = 0.0f;
+unsigned long guardLastTriggerMs = 0;
+bool guardCanRelax = false;
 bool diagModeEnabled = false;
 unsigned long diagLastPrintMs = 0;
 static constexpr unsigned long kDiagIntervalMs = 3000UL;
@@ -1095,6 +1114,15 @@ const char* decoderModeLabel(uint8_t m) {
   }
 }
 
+const char* safetyModeLabel(uint8_t m) {
+  switch ((PlaybackSafetyMode)m) {
+    case SAFETY_STRICT_REFERENCE: return "STRICT_REFERENCE";
+    case SAFETY_PLAYBACK_ADAPTIVE: return "PLAYBACK_ADAPTIVE";
+    case SAFETY_STRICT_SAFE:
+    default: return "STRICT_SAFE";
+  }
+}
+
 const char* guardStateLabel(uint8_t s) {
   switch ((GuardState)s) {
     case GUARD_BRAKE_A: return "BRAKE_A";
@@ -1159,15 +1187,29 @@ void applyDecoderOperatingModeTuning() {
 }
 
 void applyEffectiveDecoderSettings() {
-  const float effectiveTrim = clampf(staticOutputTrimDb + guardTrimOffsetDb, -18.0f, 18.0f);
-  const float effectiveHeadroom = clampf(staticHeadroomDb + guardHeadroomOffsetDb, 0.0f, 6.0f);
-  const float effectiveMaxBoost = clampf(OCXProfile::kMaxBoostDb + guardBoostCapReductionDb, 0.0f, 24.0f);
+  const bool referenceSafety = playbackSafetyMode == SAFETY_STRICT_REFERENCE;
+  const bool adaptiveSafety = playbackSafetyMode == SAFETY_PLAYBACK_ADAPTIVE;
+  const float guardTrim = referenceSafety ? 0.0f : guardTrimOffsetDb;
+  const float guardHead = referenceSafety ? 0.0f : guardHeadroomOffsetDb;
+  const float guardBoost = referenceSafety ? 0.0f : guardBoostCapReductionDb;
+  const float effectiveTrim = clampf(staticOutputTrimDb + guardTrim, -18.0f, 18.0f);
+  const float effectiveHeadroom = clampf(staticHeadroomDb + guardHead + (adaptiveSafety ? 0.5f : 0.0f), 0.0f, 6.0f);
+  const float effectiveMaxBoost = clampf(OCXProfile::kMaxBoostDb + guardBoost - (adaptiveSafety ? 0.5f : 0.0f), 0.0f, 24.0f);
   ocx.setReferenceDb(staticReferenceDb);
   ocx.setOutputTrimDb(effectiveTrim);
   ocx.setHeadroomDb(effectiveHeadroom);
   ocx.setMaxBoostDb(effectiveMaxBoost);
   ocx.setDecoderOperatingMode(decoderOperatingMode);
-  applyDecoderOperatingModeTuning();
+  if (referenceSafety) {
+    ocx.setAutoTrimEnabled(false);
+    ocx.setAutoTrimMaxDb(0.0f);
+    ocx.setSaturationSoftfail(false);
+    ocx.setSaturationKneeDb(0.0f);
+    ocx.setSoftClipDrive(1.0f);
+    ocx.setDropoutHoldMs(0.0f);
+  } else {
+    applyDecoderOperatingModeTuning();
+  }
 }
 
 const char* autoCalStateLabel(uint8_t s) {
@@ -1854,13 +1896,19 @@ void updatePlaybackGuard() {
     guardWindowBoostClamp10s += guardBoostBins[pos];
   }
 
-  if (!guardEnabled) {
+  const bool referenceSafety = playbackSafetyMode == SAFETY_STRICT_REFERENCE;
+  if (!guardEnabled || referenceSafety) {
     if (guardTrimOffsetDb != 0.0f || guardHeadroomOffsetDb != 0.0f || guardBoostCapReductionDb != 0.0f) {
       guardTrimOffsetDb = 0.0f;
       guardHeadroomOffsetDb = 0.0f;
       guardBoostCapReductionDb = 0.0f;
-      guardMarkChanged(now, GUARD_IDLE, "disabled");
+      guardMarkChanged(now, GUARD_IDLE, referenceSafety ? "reference_mode" : "disabled");
     }
+    guardTriggerSource = referenceSafety ? "reference_mode_guard_off" : "guard_disabled";
+    guardTriggerValue = 0.0f;
+    guardTriggerThreshold = 0.0f;
+    guardRelaxBlockedBy = "guard_off";
+    guardCanRelax = true;
     maybePersistGuard(now);
     return;
   }
@@ -1868,8 +1916,14 @@ void updatePlaybackGuard() {
   const bool triggerA = outClipNew > 0 || outPeakMono >= 0.985f || guardWindowNearLimit10s >= 250;
   const bool triggerB = guardWindowNearLimit10s >= 700 || guardWindowBoostClamp10s >= 300;
   const bool stableForRelax = (now - guardLastBrakeMs) >= 45000UL && guardWindowClip1s == 0 && guardWindowNearLimit10s <= 70 && guardWindowBoostClamp10s <= 50;
+  guardCanRelax = stableForRelax;
+  guardRelaxBlockedBy = stableForRelax ? "none" : ((guardWindowClip1s > 0) ? "recent_clip" : ((guardWindowNearLimit10s > 70) ? "near_limit_window" : ((guardWindowBoostClamp10s > 50) ? "boost_clamp_window" : "min_hold_time")));
 
   if (triggerA) {
+    guardTriggerSource = (outClipNew > 0) ? "recent_clip_history" : ((outPeakMono >= 0.985f) ? "post_output_peak" : "margin_shortfall");
+    guardTriggerValue = (outClipNew > 0) ? (float)outClipNew : ((outPeakMono >= 0.985f) ? outPeakMono : (float)guardWindowNearLimit10s);
+    guardTriggerThreshold = (outClipNew > 0) ? 1.0f : ((outPeakMono >= 0.985f) ? 0.985f : 250.0f);
+    guardLastTriggerMs = now;
     guardTrimOffsetDb = clampf(guardTrimOffsetDb - 0.5f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
     if (outClipNew > 0 || outPeakMono >= 0.995f) {
       guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb + 0.5f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
@@ -1877,11 +1931,18 @@ void updatePlaybackGuard() {
     guardLastBrakeMs = now;
     guardMarkChanged(now, GUARD_BRAKE_A, outClipNew > 0 ? "out_clip" : "near_limit");
   } else if (triggerB) {
+    guardTriggerSource = (guardWindowBoostClamp10s >= 300) ? "boost_risk" : "near_limit_window";
+    guardTriggerValue = (guardWindowBoostClamp10s >= 300) ? (float)guardWindowBoostClamp10s : (float)guardWindowNearLimit10s;
+    guardTriggerThreshold = (guardWindowBoostClamp10s >= 300) ? 300.0f : 700.0f;
+    guardLastTriggerMs = now;
     guardTrimOffsetDb = clampf(guardTrimOffsetDb - 0.5f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
     guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb + 0.5f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
     guardBoostCapReductionDb = clampf(guardBoostCapReductionDb - 0.5f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
     guardMarkChanged(now, GUARD_PROTECT_B, "boost_near_limit");
   } else if (stableForRelax && (guardTrimOffsetDb < 0.0f || guardHeadroomOffsetDb > 0.0f || guardBoostCapReductionDb < 0.0f)) {
+    guardTriggerSource = "stable_relax";
+    guardTriggerValue = (float)(now - guardLastBrakeMs);
+    guardTriggerThreshold = 45000.0f;
     guardTrimOffsetDb = clampf(guardTrimOffsetDb + 0.15f, kGuardMinTrimOffsetDb, kGuardMaxTrimOffsetDb);
     guardHeadroomOffsetDb = clampf(guardHeadroomOffsetDb - 0.15f, kGuardMinHeadroomOffsetDb, kGuardMaxHeadroomOffsetDb);
     guardBoostCapReductionDb = clampf(guardBoostCapReductionDb + 0.15f, kGuardMinBoostReductionDb, kGuardMaxBoostReductionDb);
@@ -1890,6 +1951,9 @@ void updatePlaybackGuard() {
     if (guardTrimOffsetDb == 0.0f && guardHeadroomOffsetDb == 0.0f && guardBoostCapReductionDb == 0.0f) {
       guardState = GUARD_IDLE;
       guardReason = "neutral";
+      guardTriggerSource = "none";
+      guardTriggerValue = 0.0f;
+      guardTriggerThreshold = 0.0f;
     } else {
       guardState = GUARD_SETTLED;
       guardReason = "holding";
@@ -1914,6 +1978,8 @@ void printHelp() {
   Serial.println(F("  b  : toggle bypass"));
   Serial.println(F("  M  : print codec mode"));
   Serial.println(F("  j  : print preset"));
+  Serial.println(F("  6  : cycle safety mode STRICT_REFERENCE -> STRICT_SAFE -> PLAYBACK_ADAPTIVE"));
+  Serial.println(F("  7  : print control diagnostics (guard trigger + peak/margin chain)"));
   Serial.println(F("  u  : select preset UNIVERSAL"));
   Serial.println(F("  U  : cycle decoder operating mode STRICT -> RESTORATION -> CONTROLLED_RECORD"));
   Serial.println(F("  l  : start AUTO_CAL (1-kHz measurement cassette only)"));
@@ -1926,6 +1992,7 @@ void printHelp() {
   Serial.println(F("  K  : print AUTO_CAL raw telemetry/reject reasons"));
   Serial.println(F("  L  : print locked AUTO_CAL values"));
   Serial.println(F("  H  : toggle PLAYBACK_GUARD_DYNAMIC"));
+  Serial.println(F("  @  : hard reset guard state/window/history"));
   Serial.println(F("  >  : set mode decode"));
   Serial.println(F("  <  : set mode encode"));
   Serial.println(F("  P  : persist mode/preset/AUTO_CAL settings"));
@@ -2002,6 +2069,7 @@ void printCompactTelemetryLine() {
   Serial.print(F(" bypass=")); Serial.print(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.print(F(" preset=")); Serial.print(presetLabel(currentPreset));
   Serial.print(F(" decMode=")); Serial.print(decoderModeLabel(decoderOperatingMode));
+  Serial.print(F(" safeMode=")); Serial.print(safetyModeLabel(playbackSafetyMode));
   Serial.print(F(" auto=")); Serial.print(autoCalStateLabel(autoCalState));
   Serial.print(F(" autoValid=")); Serial.print(autoCalValid ? F("YES") : F("NO"));
   Serial.print(F(" deck=")); Serial.print(deckTypeLabel(deckType));
@@ -2010,6 +2078,9 @@ void printCompactTelemetryLine() {
   Serial.print(F(" guardEnabled=")); Serial.print(guardEnabled ? F("YES") : F("NO"));
   Serial.print(F(" guardState=")); Serial.print(guardStateLabel(guardState));
   Serial.print(F(" guardReason=")); Serial.print(guardReason);
+  Serial.print(F(" guardTrigSrc=")); Serial.print(guardTriggerSource);
+  Serial.print(F(" guardTrigVal=")); Serial.print(guardTriggerValue, 2);
+  Serial.print(F(" guardTrigThr=")); Serial.print(guardTriggerThreshold, 2);
   Serial.print(F(" guardTrimOffsetDb=")); Serial.print(guardTrimOffsetDb, 2);
   Serial.print(F(" guardHeadroomOffsetDb=")); Serial.print(guardHeadroomOffsetDb, 2);
   Serial.print(F(" guardBoostCapReductionDb=")); Serial.print(guardBoostCapReductionDb, 2);
@@ -2128,6 +2199,7 @@ void printStatus() {
   Serial.print(F("Mode: ")); Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE"));
   Serial.print(F("Preset: ")); Serial.println(presetLabel(currentPreset));
   Serial.print(F("Decoder operating mode: ")); Serial.println(decoderModeLabel(decoderOperatingMode));
+  Serial.print(F("Safety mode: ")); Serial.println(safetyModeLabel(playbackSafetyMode));
   Serial.print(F("Deck type: ")); Serial.println(deckTypeLabel(deckType));
   Serial.print(F("Active transport: ")); Serial.println(transportLabel(activeTransport));
   Serial.print(F("Selected profile: ")); Serial.println(profileSelectLabel(selectedProfile));
@@ -2144,6 +2216,9 @@ void printStatus() {
   Serial.print(F("PLAYBACK_GUARD_DYNAMIC: ")); Serial.println(guardEnabled ? F("ON") : F("OFF"));
   Serial.print(F("Periodic DIAG mode: ")); Serial.println(diagModeEnabled ? F("ON (3 s)") : F("OFF"));
   Serial.print(F("Guard state/reason: ")); Serial.print(guardStateLabel(guardState)); Serial.print(F(" / ")); Serial.println(guardReason);
+  Serial.print(F("Guard trigger src/value/thr: ")); Serial.print(guardTriggerSource); Serial.print(F(" / "));
+  Serial.print(guardTriggerValue, 2); Serial.print(F(" / ")); Serial.println(guardTriggerThreshold, 2);
+  Serial.print(F("Guard can relax / blocked by: ")); Serial.print(guardCanRelax ? F("YES") : F("NO")); Serial.print(F(" / ")); Serial.println(guardRelaxBlockedBy);
   Serial.print(F("Bypass: ")); Serial.println(ocx.getBypass() ? F("ON") : F("OFF"));
   Serial.println(F("Bypass mode keeps output protection (headroom + soft clip), not a hard relay bypass."));
   Serial.print(F("Input trim: ")); Serial.print(ocx.getInputTrimDb(), 2); Serial.println(F(" dB"));
@@ -2291,6 +2366,37 @@ void printPeriodicDiagLine() {
   Serial.print(F(" act%=")); Serial.print(decodeActivityPct, 1);
   Serial.print(F(" drift(g/rms/bal)=")); Serial.print(driftGainDb, 2); Serial.print(F("/")); Serial.print(driftOutRmsDb, 2); Serial.print(F("/")); Serial.print(driftBalanceDb, 2);
   Serial.print(F(" stableMs=")); Serial.println(millis() - guardLastStateChangeMs);
+
+  const float marginOutDb = linToDb(1.0f / fmaxf(outPeakMono, 1.0e-6f));
+  Serial.print(F("[DIAG2] pkInRaw=")); Serial.print(inPeakMono, 3);
+  Serial.print(F(" pkPreGuard=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" pkPostGuard=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" pkPreClip=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" pkPostClip=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" pkOut=")); Serial.print(outPeakMono, 3);
+  Serial.print(F(" marginOutDb=")); Serial.print(marginOutDb, 2);
+  Serial.print(F(" gCmd=")); Serial.print(d.lastGainDb, 2);
+  Serial.print(F(" gApplied=")); Serial.print(d.avgGainDb, 2);
+  Serial.print(F(" gGuard=")); Serial.print(guardTrimOffsetDb - guardHeadroomOffsetDb, 2);
+  Serial.print(F(" trigSrc=")); Serial.print(guardTriggerSource);
+  Serial.print(F(" trigVal=")); Serial.print(guardTriggerValue, 2);
+  Serial.print(F(" trigThr=")); Serial.println(guardTriggerThreshold, 2);
+}
+
+void printControlDiagnostics() {
+  Serial.println(F("---- OCX CONTROL DIAGNOSTICS ----"));
+  Serial.print(F("Safety mode: ")); Serial.println(safetyModeLabel(playbackSafetyMode));
+  Serial.print(F("Decoder mode: ")); Serial.println(decoderModeLabel(decoderOperatingMode));
+  Serial.print(F("Guard enabled: ")); Serial.println((guardEnabled && playbackSafetyMode != SAFETY_STRICT_REFERENCE) ? F("YES") : F("NO"));
+  Serial.print(F("Guard state/reason: ")); Serial.print(guardStateLabel(guardState)); Serial.print(F(" / ")); Serial.println(guardReason);
+  Serial.print(F("Guard trigger source/value/threshold: ")); Serial.print(guardTriggerSource); Serial.print(F(" / "));
+  Serial.print(guardTriggerValue, 3); Serial.print(F(" / ")); Serial.println(guardTriggerThreshold, 3);
+  Serial.print(F("Guard can relax / blocked by: ")); Serial.print(guardCanRelax ? F("YES") : F("NO")); Serial.print(F(" / ")); Serial.println(guardRelaxBlockedBy);
+  const unsigned long ago = (guardLastTriggerMs == 0) ? 0UL : (millis() - guardLastTriggerMs);
+  Serial.print(F("Guard last trigger ms ago: ")); Serial.println(ago);
+  Serial.print(F("Guard offsets trim/head/boost: ")); Serial.print(guardTrimOffsetDb, 2); Serial.print(F(" / "));
+  Serial.print(guardHeadroomOffsetDb, 2); Serial.print(F(" / ")); Serial.println(guardBoostCapReductionDb, 2);
+  printPeriodicDiagLine();
 }
 
 void resetWarningLatches() {
@@ -2350,6 +2456,12 @@ void handleSerial() {
       case 'b': ocx.setBypass(!ocx.getBypass()); break;
       case 'M': Serial.println(ocx.getMode() == AudioEffectOCXType2CodecStereo::MODE_ENCODE ? F("ENCODE") : F("DECODE")); break;
       case 'j': Serial.println(presetLabel(currentPreset)); break;
+      case '6':
+        playbackSafetyMode = static_cast<PlaybackSafetyMode>((static_cast<uint8_t>(playbackSafetyMode) + 1U) % 3U);
+        applyEffectiveDecoderSettings();
+        Serial.print(F("[CFG] safety_mode=")); Serial.println(safetyModeLabel(playbackSafetyMode));
+        break;
+      case '7': printControlDiagnostics(); break;
       case 'u': currentPreset = PRESET_UNIVERSAL; applyDecoderPreset(currentPreset); autoCalState = AUTO_IDLE; break;
       case 'U':
         decoderOperatingMode = static_cast<DecoderOperatingMode>((static_cast<uint8_t>(decoderOperatingMode) + 1U) % 3U);
@@ -2411,6 +2523,28 @@ void handleSerial() {
           guardBoostCapReductionDb = 0.0f;
         }
         applyEffectiveDecoderSettings();
+        break;
+      case '@':
+        guardTrimOffsetDb = 0.0f;
+        guardHeadroomOffsetDb = 0.0f;
+        guardBoostCapReductionDb = 0.0f;
+        guardWindowPos = 0;
+        guardWindowCount = 0;
+        guardWindowClip1s = 0;
+        guardWindowNearLimit10s = 0;
+        guardWindowBoostClamp10s = 0;
+        memset(guardClipBins, 0, sizeof(guardClipBins));
+        memset(guardNearBins, 0, sizeof(guardNearBins));
+        memset(guardBoostBins, 0, sizeof(guardBoostBins));
+        guardTriggerSource = "manual_reset";
+        guardTriggerValue = 0.0f;
+        guardTriggerThreshold = 0.0f;
+        guardRelaxBlockedBy = "none";
+        guardCanRelax = true;
+        guardState = GUARD_IDLE;
+        guardReason = "manual_reset";
+        applyEffectiveDecoderSettings();
+        Serial.println(F("[CFG] guard history hard reset"));
         break;
       case '>': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_DECODE); break;
       case '<': ocx.setMode(AudioEffectOCXType2CodecStereo::MODE_ENCODE); break;

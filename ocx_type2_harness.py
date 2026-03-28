@@ -363,6 +363,35 @@ def score_candidate(metrics: list[dict[str, float | bool | int | None]]) -> floa
     return float(evaluate_scores(metrics)["score_total"])
 
 
+def build_tracking_burst_summary(metrics: list[dict[str, float | bool | int | None]]) -> dict[str, object]:
+    keyed = {str(row.get("case", "")): row for row in metrics}
+    selected = ["bursts", "transient_train", "fast_level_switches", "music_like", "bass_plus_hf"]
+    per_case: dict[str, dict[str, float | int]] = {}
+    for name in selected:
+        row = keyed.get(name)
+        if row is None:
+            continue
+        per_case[name] = {
+            "gain_curve_diff_p95_db": float(row["gain_curve_diff_p95_db"]),
+            "gain_curve_diff_std_db": float(row["gain_curve_diff_std_db"]),
+            "transient_delta": float(row["transient_delta"]),
+            "overshoot_delta": float(row["overshoot_delta"]),
+            "undershoot_delta": float(row["undershoot_delta"]),
+            "decode_action_ratio": float(row["decode_action_ratio"]),
+            "output_clip": int(bool(row["output_clip_l"]) or bool(row["output_clip_r"])),
+        }
+    return {
+        "cases": per_case,
+        "aggregate": {
+            "case_count": len(per_case),
+            "clips_in_selected_cases": int(sum(int(v["output_clip"]) for v in per_case.values())),
+            "mean_gain_curve_diff_p95_db": float(np.mean([v["gain_curve_diff_p95_db"] for v in per_case.values()])) if per_case else 0.0,
+            "mean_overshoot_delta": float(np.mean([v["overshoot_delta"] for v in per_case.values()])) if per_case else 0.0,
+            "mean_undershoot_delta": float(np.mean([v["undershoot_delta"] for v in per_case.values()])) if per_case else 0.0,
+        },
+    }
+
+
 def tone(fs: int, seconds: float, freq: float, level_db: float, phase: float = 0.0) -> np.ndarray:
     t = np.arange(int(fs * seconds)) / fs
     return db_to_lin(level_db) * np.sin(2.0 * np.pi * freq * t + phase)
@@ -881,6 +910,7 @@ def build_case_specs(
     reference_dir: Path | None = None,
     source_type_filter: set[str] | None = None,
     cassette_priority_only: bool = False,
+    max_case_seconds: float | None = 6.0,
 ) -> dict[str, dict[str, object]]:
     specs = _synthetic_case_specs(fs)
     for spec in specs.values():
@@ -898,6 +928,15 @@ def build_case_specs(
         specs = {k: v for k, v in specs.items() if _match_source_type(v, source_type_filter)}
     if cassette_priority_only:
         specs = {k: v for k, v in specs.items() if _is_cassette_priority(v)}
+    if max_case_seconds is not None and max_case_seconds > 0:
+        max_samples = int(max(1, round(float(max_case_seconds) * fs)))
+        for spec in specs.values():
+            inp = np.asarray(spec["input"])
+            spec["input"] = inp[:max_samples]
+            if "source_target" in spec:
+                spec["source_target"] = np.asarray(spec["source_target"])[:max_samples]
+            if "reference_decode" in spec:
+                spec["reference_decode"] = np.asarray(spec["reference_decode"])[:max_samples]
     return specs
 
 
@@ -1091,8 +1130,15 @@ def run_detector_study(profile_path: Path, fs: int, mode: str = "decode", preset
     }
 
 
-def evaluate_profile_set(profile_path: Path, fs: int, mode: str, reference_dir: Path, profiles: list[str]) -> dict[str, object]:
-    case_specs = build_case_specs(fs, reference_dir)
+def evaluate_profile_set(
+    profile_path: Path,
+    fs: int,
+    mode: str,
+    reference_dir: Path,
+    profiles: list[str],
+    max_case_seconds: float | None = 6.0,
+) -> dict[str, object]:
+    case_specs = build_case_specs(fs, reference_dir, max_case_seconds=max_case_seconds)
     profile_doc = json.loads(profile_path.read_text())
     slot_map = profile_doc.get("profile_slots", {}).get("decoder", {})
     per_profile: dict[str, object] = {}
@@ -1135,6 +1181,7 @@ def main() -> None:
     ap.add_argument("--tune-max-candidates", type=int, default=2, help="Limit of coarse candidates to evaluate for compact tuning runs.")
     ap.add_argument("--detector-study", action="store_true", help="Compare energy-like detector and RMS-nearer detector in simulator.")
     ap.add_argument("--profile-set-report", action="store_true", help="Emit summary for single/lw1/lw2/common profile slots.")
+    ap.add_argument("--max-case-seconds", type=float, default=6.0, help="Truncate each case to this maximum duration for predictable runtime.")
     args = ap.parse_args()
 
     profile = json.loads(args.profile.read_text())
@@ -1159,7 +1206,14 @@ def main() -> None:
             study = run_detector_study(args.profile, fs=fs, mode=args.mode, preset=args.preset)
             (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
         if args.profile_set_report:
-            set_report = evaluate_profile_set(args.profile, fs=fs, mode=args.mode, reference_dir=args.reference_dir, profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
+            set_report = evaluate_profile_set(
+                args.profile,
+                fs=fs,
+                mode=args.mode,
+                reference_dir=args.reference_dir,
+                profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"],
+                max_case_seconds=args.max_case_seconds,
+            )
             (args.out_dir / "profile_set_summary.json").write_text(json.dumps(set_report, indent=2))
         return
 
@@ -1176,7 +1230,13 @@ def main() -> None:
     src_filter = {args.reference_source}
     if args.reference_source == "all":
         src_filter = {"all"}
-    case_specs = build_case_specs(fs, args.reference_dir, source_type_filter=src_filter, cassette_priority_only=args.cassette_priority_only)
+    case_specs = build_case_specs(
+        fs,
+        args.reference_dir,
+        source_type_filter=src_filter,
+        cassette_priority_only=args.cassette_priority_only,
+        max_case_seconds=args.max_case_seconds,
+    )
     user_overrides = parse_override_pairs(args.override)
 
     results = evaluate_candidate(args.profile, fs, case_specs, mode=args.mode, overrides=user_overrides, reference_dir=args.reference_dir, preset=args.preset)
@@ -1194,6 +1254,7 @@ def main() -> None:
             write_audio(args.out_dir / f"{name}_output.wav", fs, out)
 
     (args.out_dir / "metrics.json").write_text(json.dumps(results, indent=2))
+    (args.out_dir / "tracking_burst_summary.json").write_text(json.dumps(build_tracking_burst_summary(results), indent=2))
     score_summary = evaluate_scores(results)
     summary = {
         **score_summary,
@@ -1247,7 +1308,14 @@ def main() -> None:
         study = run_detector_study(args.profile, fs=fs, preset=args.preset)
         (args.out_dir / "detector_study.json").write_text(json.dumps(study, indent=2))
     if args.profile_set_report:
-        set_report = evaluate_profile_set(args.profile, fs=fs, mode=args.mode, reference_dir=args.reference_dir, profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"])
+        set_report = evaluate_profile_set(
+            args.profile,
+            fs=fs,
+            mode=args.mode,
+            reference_dir=args.reference_dir,
+            profiles=["single_profile", "lw1_profile", "lw2_profile", "common_profile"],
+            max_case_seconds=args.max_case_seconds,
+        )
         (args.out_dir / "profile_set_summary.json").write_text(json.dumps(set_report, indent=2))
 
 
