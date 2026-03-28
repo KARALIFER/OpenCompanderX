@@ -1,0 +1,20 @@
+[
+  {
+    "case": "fast_level_switches",
+    "gain_vs_input_slope": 0.21592926393362982,
+    "gain_vs_input_r2": 0.21406945483224726,
+    "decode_action_ratio": 0.4206379111371815
+  },
+  {
+    "case": "bursts",
+    "gain_vs_input_slope": -0.5804364887696613,
+    "gain_vs_input_r2": 0.857390034152834,
+    "decode_action_ratio": 0.3179723598669991
+  },
+  {
+    "case": "transient_train",
+    "gain_vs_input_slope": -0.8625565599580373,
+    "gain_vs_input_r2": 0.9981880462387542,
+    "decode_action_ratio": 0.5736957177004849
+  }
+]

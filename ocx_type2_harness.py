@@ -392,6 +392,66 @@ def build_tracking_burst_summary(metrics: list[dict[str, float | bool | int | No
     }
 
 
+def build_acceptance_artifacts(metrics: list[dict[str, float | bool | int | None]]) -> dict[str, object]:
+    matrix_rows = [
+        row
+        for row in metrics
+        if row.get("matrix_frequency_hz") is not None and row.get("matrix_level_db") is not None
+    ]
+    by_freq: dict[float, list[dict[str, float]]] = {}
+    for row in matrix_rows:
+        f = float(row["matrix_frequency_hz"])
+        by_freq.setdefault(f, []).append(
+            {
+                "level_db": float(row["matrix_level_db"]),
+                "gain_curve_mean_db": float(row["gain_curve_mean_db"]),
+                "correlation": float(row["correlation"]),
+            }
+        )
+    for vals in by_freq.values():
+        vals.sort(key=lambda v: v["level_db"])
+
+    keyed = {str(row.get("case", "")): row for row in metrics}
+    tracking_curve_cases = ["tracking_slope", "fast_level_switches", "bursts", "transient_train"]
+    tracking_curve = [
+        {
+            "case": name,
+            "gain_vs_input_slope": float(keyed[name]["gain_vs_input_slope"]),
+            "gain_vs_input_r2": float(keyed[name]["gain_vs_input_r2"]),
+            "decode_action_ratio": float(keyed[name]["decode_action_ratio"]),
+        }
+        for name in tracking_curve_cases
+        if name in keyed
+    ]
+    toneburst = {
+        "bursts": keyed.get("bursts"),
+        "transient_train": keyed.get("transient_train"),
+        "fast_level_switches": keyed.get("fast_level_switches"),
+    }
+    spectrum = {
+        "pink_noise": keyed.get("pink_noise"),
+        "bass_heavy": keyed.get("bass_heavy"),
+        "treble_heavy": keyed.get("treble_heavy"),
+        "bass_plus_hf": keyed.get("bass_plus_hf"),
+    }
+    clip_report = {
+        "total_cases": len(metrics),
+        "cases_with_output_clip": int(sum(1 for row in metrics if bool(row["output_clip_l"]) or bool(row["output_clip_r"]))),
+        "output_clip_case_names": [
+            str(row.get("case", ""))
+            for row in metrics
+            if bool(row["output_clip_l"]) or bool(row["output_clip_r"])
+        ],
+    }
+    return {
+        "frequency_response_decode_matrix": by_freq,
+        "tracking_curve": tracking_curve,
+        "toneburst_overshoot": toneburst,
+        "spectrum_in_vs_out": spectrum,
+        "guard_clip_report": clip_report,
+    }
+
+
 def tone(fs: int, seconds: float, freq: float, level_db: float, phase: float = 0.0) -> np.ndarray:
     t = np.arange(int(fs * seconds)) / fs
     return db_to_lin(level_db) * np.sin(2.0 * np.pi * freq * t + phase)
@@ -1255,6 +1315,14 @@ def main() -> None:
 
     (args.out_dir / "metrics.json").write_text(json.dumps(results, indent=2))
     (args.out_dir / "tracking_burst_summary.json").write_text(json.dumps(build_tracking_burst_summary(results), indent=2))
+    acceptance = build_acceptance_artifacts(results)
+    (args.out_dir / "frequency_response_decode_matrix.json").write_text(
+        json.dumps(acceptance["frequency_response_decode_matrix"], indent=2)
+    )
+    (args.out_dir / "tracking_curve.json").write_text(json.dumps(acceptance["tracking_curve"], indent=2))
+    (args.out_dir / "toneburst_overshoot.json").write_text(json.dumps(acceptance["toneburst_overshoot"], indent=2))
+    (args.out_dir / "spectrum_in_vs_out.json").write_text(json.dumps(acceptance["spectrum_in_vs_out"], indent=2))
+    (args.out_dir / "guard_clip_report.json").write_text(json.dumps(acceptance["guard_clip_report"], indent=2))
     score_summary = evaluate_scores(results)
     summary = {
         **score_summary,

@@ -1,0 +1,10 @@
+{
+  "total_cases": 44,
+  "cases_with_output_clip": 4,
+  "output_clip_case_names": [
+    "bass_heavy",
+    "clipped_input",
+    "too_hot",
+    "bass_plus_hf"
+  ]
+}

@@ -265,6 +265,11 @@ public:
     float outputMeanR = 0.0f;
     uint32_t sampleCount = 0;
     float lastGainDb = 0.0f;
+    float gainDbCommanded = 0.0f;
+    float gainDbSmoothed = 0.0f;
+    float gainDbApplied = 0.0f;
+    float gainDbGuard = 0.0f;
+    float gainDbNet = 0.0f;
     float minGainDb = 0.0f;
     float maxGainDb = 0.0f;
     float avgGainDb = 0.0f;
@@ -283,6 +288,11 @@ public:
     float outputCrossMean = 0.0f;
     float lowProxyMean = 0.0f;
     float highProxyMean = 0.0f;
+    float detectorScRmsDb = -120.0f;
+    float detectorInRmsDb = -120.0f;
+    float detectorHfDropDb = 0.0f;
+    float detectorLevelDropDb = 0.0f;
+    uint16_t dropoutHoldCounter = 0;
   };
 
   void setBypass(bool v)             { if (bypass != v) { bypass = v; armOutputSoftStart(); } }
@@ -317,6 +327,7 @@ public:
   void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
   void setDecoderOperatingMode(DecoderOperatingMode m) { if (decoderMode != m) armOutputSoftStart(); decoderMode = m; recalcDetector(); }
   void setOutputSoftStartEnabled(bool v) { outputSoftStartEnabled = v; if (!v) outputSoftStartSamplesRemaining = 0; }
+  void setReferenceTransparentPath(bool v) { referenceTransparentPath = v; if (v) outputSoftStartSamplesRemaining = 0; }
   void armOutputSoftStart() { outputSoftStartSamplesRemaining = kOutputSoftStartSamples; }
 
   float getInputTrimDb() const       { return inputTrimDb; }
@@ -459,6 +470,7 @@ private:
   float saturationThreshold = OCXProfile::kSaturationThreshold;
   float saturationKneeDb = OCXProfile::kSaturationKneeDb;
   bool outputSoftStartEnabled = true;
+  bool referenceTransparentPath = false;
   float autoTrimCoeff = 0.0f;
   uint16_t dropoutHoldSamples = 0;
   uint16_t dropoutHoldCounter = 0;
@@ -529,6 +541,15 @@ private:
   uint32_t lastReportedInputClipCount = 0;
   uint32_t lastReportedOutputClipCount = 0;
   uint16_t outputSoftStartSamplesRemaining = 0;
+  float diagGainDbCommanded = 0.0f;
+  float diagGainDbSmoothed = 0.0f;
+  float diagGainDbApplied = 0.0f;
+  float diagGainDbGuard = 0.0f;
+  float diagGainDbNet = 0.0f;
+  float diagDetectorScRmsDb = -120.0f;
+  float diagDetectorInRmsDb = -120.0f;
+  float diagDetectorHfDropDb = 0.0f;
+  float diagDetectorLevelDropDb = 0.0f;
 
   void recalcAll() {
     setInputTrimDb(inputTrimDb);
@@ -592,9 +613,9 @@ private:
 
   inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive, float softStartGain) {
     const float preGuard = y;
-    const float postGuard = preGuard * outGain * roomGain;
-    const float preSoftClip = postGuard * softStartGain;
-    const float postSoftClip = softClip(preSoftClip, clipDrive);
+    const float postGuard = referenceTransparentPath ? preGuard : (preGuard * outGain * roomGain);
+    const float preSoftClip = referenceTransparentPath ? postGuard : (postGuard * softStartGain);
+    const float postSoftClip = referenceTransparentPath ? preSoftClip : softClip(preSoftClip, clipDrive);
     updatePeak(diagPkPreGuard, fabsf(preGuard));
     updatePeak(diagPkPostGuard, fabsf(postGuard));
     updatePeak(diagPkPreSoftClip, fabsf(preSoftClip));
@@ -629,11 +650,13 @@ private:
     }
     const float rawGainDb = (linToDb(env) - referenceDb + autoTrimDb) * strength;
     float gainDb = clampf(rawGainDb, -maxCutDb, maxBoostDb);
+    float scRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
+    float inRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
+    float hfDropDb = 0.0f;
+    float levelDropDb = 0.0f;
     if (decoderMode == DECODER_RESTORATION) {
-      const float scRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
-      const float inRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
-      const float hfDropDb = linToDb(prevScRms / fmaxf(scRms, 1.0e-12f));
-      const float levelDropDb = linToDb(prevInRms / fmaxf(inRms, 1.0e-12f));
+      hfDropDb = linToDb(prevScRms / fmaxf(scRms, 1.0e-12f));
+      levelDropDb = linToDb(prevInRms / fmaxf(inRms, 1.0e-12f));
       if (hfDropDb > dropoutHfDropDb && levelDropDb > dropoutLevelDropDb) dropoutHoldCounter = dropoutHoldSamples;
       if (dropoutHoldCounter > 0) {
         --dropoutHoldCounter;
@@ -647,10 +670,19 @@ private:
       prevScRms = scRms;
       prevInRms = inRms;
     } else {
-      prevScRms = sqrtf(0.5f * (scL * scL + scR * scR) + 1.0e-12f);
-      prevInRms = sqrtf(0.5f * (xL * xL + xR * xR) + 1.0e-12f);
+      prevScRms = scRms;
+      prevInRms = inRms;
       dropoutHoldCounter = 0;
     }
+    diagGainDbCommanded = rawGainDb;
+    diagGainDbSmoothed = gainDb;
+    diagGainDbApplied = gainDb;
+    diagGainDbGuard = 0.0f;
+    diagGainDbNet = gainDb;
+    diagDetectorScRmsDb = linToDb(scRms);
+    diagDetectorInRmsDb = linToDb(inRms);
+    diagDetectorHfDropDb = hfDropDb;
+    diagDetectorLevelDropDb = levelDropDb;
     prevGainDb = gainDb;
     if (rawGainDb <= -maxCutDb) ++diagClampCutHitCount;
     if (rawGainDb >=  maxBoostDb) ++diagClampBoostHitCount;
@@ -779,6 +811,11 @@ void AudioEffectOCXType2CodecStereo::resetSignalDiagnostics() {
   diagOutputSumR = 0.0f;
   diagSampleCount = 0;
   diagLastGainDb = 0.0f;
+  diagGainDbCommanded = 0.0f;
+  diagGainDbSmoothed = 0.0f;
+  diagGainDbApplied = 0.0f;
+  diagGainDbGuard = 0.0f;
+  diagGainDbNet = 0.0f;
   diagMinGainDb = 0.0f;
   diagMaxGainDb = 0.0f;
   diagGainDbSum = 0.0f;
@@ -806,6 +843,10 @@ void AudioEffectOCXType2CodecStereo::resetSignalDiagnostics() {
   diagPkPreSoftClip = 0.0f;
   diagPkPostSoftClip = 0.0f;
   diagPkPostOutputTrim = 0.0f;
+  diagDetectorScRmsDb = -120.0f;
+  diagDetectorInRmsDb = -120.0f;
+  diagDetectorHfDropDb = 0.0f;
+  diagDetectorLevelDropDb = 0.0f;
   interrupts();
 }
 
@@ -846,6 +887,11 @@ AudioEffectOCXType2CodecStereo::DiagSnapshot AudioEffectOCXType2CodecStereo::get
   snap.outputMeanR = (diagSampleCount > 0) ? (diagOutputSumR / (float)diagSampleCount) : 0.0f;
   snap.sampleCount = diagSampleCount;
   snap.lastGainDb = diagLastGainDb;
+  snap.gainDbCommanded = diagGainDbCommanded;
+  snap.gainDbSmoothed = diagGainDbSmoothed;
+  snap.gainDbApplied = diagGainDbApplied;
+  snap.gainDbGuard = diagGainDbGuard;
+  snap.gainDbNet = diagGainDbNet;
   snap.minGainDb = diagMinGainDb;
   snap.maxGainDb = diagMaxGainDb;
   snap.avgGainDb = (diagGainCount > 0) ? (diagGainDbSum / (float)diagGainCount) : 0.0f;
@@ -864,6 +910,11 @@ AudioEffectOCXType2CodecStereo::DiagSnapshot AudioEffectOCXType2CodecStereo::get
   snap.outputCrossMean = (diagSampleCount > 0) ? (diagOutputCrossSum / (float)diagSampleCount) : 0.0f;
   snap.lowProxyMean = (diagDecodedSampleCount > 0) ? (diagLowProxySum / (float)diagDecodedSampleCount) : 0.0f;
   snap.highProxyMean = (diagDecodedSampleCount > 0) ? (diagHighProxySum / (float)diagDecodedSampleCount) : 0.0f;
+  snap.detectorScRmsDb = diagDetectorScRmsDb;
+  snap.detectorInRmsDb = diagDetectorInRmsDb;
+  snap.detectorHfDropDb = diagDetectorHfDropDb;
+  snap.detectorLevelDropDb = diagDetectorLevelDropDb;
+  snap.dropoutHoldCounter = dropoutHoldCounter;
   interrupts();
   return snap;
 }
@@ -1262,11 +1313,12 @@ void applyEffectiveDecoderSettings() {
   const float effectiveHeadroom = clampf(staticHeadroomDb + guardHead + (adaptiveSafety ? 0.5f : 0.0f), 0.0f, 6.0f);
   const float effectiveMaxBoost = clampf(OCXProfile::kMaxBoostDb + guardBoost - (adaptiveSafety ? 0.5f : 0.0f), 0.0f, 24.0f);
   ocx.setReferenceDb(staticReferenceDb);
-  ocx.setOutputTrimDb(effectiveTrim);
-  ocx.setHeadroomDb(effectiveHeadroom);
+  ocx.setOutputTrimDb(referenceSafety ? 0.0f : effectiveTrim);
+  ocx.setHeadroomDb(referenceSafety ? 0.0f : effectiveHeadroom);
   ocx.setMaxBoostDb(effectiveMaxBoost);
   ocx.setDecoderOperatingMode(decoderOperatingMode);
   ocx.setOutputSoftStartEnabled(!referenceSafety);
+  ocx.setReferenceTransparentPath(referenceSafety);
   if (referenceSafety) {
     ocx.setAutoTrimEnabled(false);
     ocx.setAutoTrimMaxDb(0.0f);
@@ -2166,7 +2218,12 @@ void printCompactTelemetryLine() {
   Serial.print(F(" guardStableMs=")); Serial.print(millis() - guardLastStateChangeMs);
   Serial.print(F(" guardDirty=")); Serial.print(guardDirty ? F("YES") : F("NO"));
   Serial.print(F(" guardLastPersistMs=")); Serial.print(guardLastPersistMs);
+  const auto ds = ocx.getSignalDiagnosticsSnapshot();
   Serial.print(F(" gDb=")); Serial.print(ocx.getLastGainDb(), 2);
+  Serial.print(F(" gDbCmd=")); Serial.print(ds.gainDbCommanded, 2);
+  Serial.print(F(" gDbSmooth=")); Serial.print(ds.gainDbSmoothed, 2);
+  Serial.print(F(" gDbApplied=")); Serial.print(ds.gainDbApplied, 2);
+  Serial.print(F(" gDbNet=")); Serial.print(ds.gainDbNet, 2);
   Serial.print(F(" envDb=")); Serial.print(ocx.getLastEnvDb(), 1);
   Serial.print(F(" tone=")); Serial.print(calToneEnabled ? F("ON") : F("OFF"));
   Serial.print(F("/")); Serial.println(toneChannelModeLabel(toneChannelMode));
@@ -2453,9 +2510,16 @@ void printPeriodicDiagLine() {
   Serial.print(F(" pkOut=")); Serial.print(d.pkPostOutputTrim, 3);
   Serial.print(F(" marginPreClipDb=")); Serial.print(marginPreSoftClipDb, 2);
   Serial.print(F(" marginOutDb=")); Serial.print(marginOutDb, 2);
-  Serial.print(F(" gCmd=")); Serial.print(d.lastGainDb, 2);
-  Serial.print(F(" gApplied=")); Serial.print(d.avgGainDb, 2);
-  Serial.print(F(" gGuard=")); Serial.print(guardTrimOffsetDb - guardHeadroomOffsetDb, 2);
+  Serial.print(F(" gCmd=")); Serial.print(d.gainDbCommanded, 2);
+  Serial.print(F(" gSmooth=")); Serial.print(d.gainDbSmoothed, 2);
+  Serial.print(F(" gApplied=")); Serial.print(d.gainDbApplied, 2);
+  Serial.print(F(" gGuard=")); Serial.print(d.gainDbGuard, 2);
+  Serial.print(F(" gNet=")); Serial.print(d.gainDbNet, 2);
+  Serial.print(F(" detScRmsDb=")); Serial.print(d.detectorScRmsDb, 2);
+  Serial.print(F(" detInRmsDb=")); Serial.print(d.detectorInRmsDb, 2);
+  Serial.print(F(" hfDropDb=")); Serial.print(d.detectorHfDropDb, 2);
+  Serial.print(F(" lvlDropDb=")); Serial.print(d.detectorLevelDropDb, 2);
+  Serial.print(F(" dropHold=")); Serial.print(d.dropoutHoldCounter);
   Serial.print(F(" trigSrc=")); Serial.print(guardTriggerSource);
   Serial.print(F(" trigVal=")); Serial.print(guardTriggerValue, 2);
   Serial.print(F(" trigThr=")); Serial.println(guardTriggerThreshold, 2);

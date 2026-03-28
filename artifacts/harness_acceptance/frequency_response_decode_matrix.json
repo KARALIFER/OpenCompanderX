@@ -1,0 +1,110 @@
+{
+  "400.0": [
+    {
+      "level_db": -30.0,
+      "gain_curve_mean_db": -15.911561610223677,
+      "correlation": 0.9951980934070114
+    },
+    {
+      "level_db": -24.0,
+      "gain_curve_mean_db": -11.390844139764086,
+      "correlation": 0.9951432276754928
+    },
+    {
+      "level_db": -18.0,
+      "gain_curve_mean_db": -6.839179889514152,
+      "correlation": 0.9951218448050327
+    },
+    {
+      "level_db": -12.0,
+      "gain_curve_mean_db": -2.32718243193953,
+      "correlation": 0.9951198101949258
+    },
+    {
+      "level_db": -6.0,
+      "gain_curve_mean_db": 1.733841669548948,
+      "correlation": 0.9949498415341349
+    }
+  ],
+  "1000.0": [
+    {
+      "level_db": -30.0,
+      "gain_curve_mean_db": -15.985144630955759,
+      "correlation": 0.9557330293438223
+    },
+    {
+      "level_db": -24.0,
+      "gain_curve_mean_db": -11.442886107431415,
+      "correlation": 0.9556899476587662
+    },
+    {
+      "level_db": -18.0,
+      "gain_curve_mean_db": -6.890523414976542,
+      "correlation": 0.9556766858284685
+    },
+    {
+      "level_db": -12.0,
+      "gain_curve_mean_db": -2.3777615605773694,
+      "correlation": 0.9556750961456578
+    },
+    {
+      "level_db": -6.0,
+      "gain_curve_mean_db": 1.688744314366823,
+      "correlation": 0.9555157359327845
+    }
+  ],
+  "3150.0": [
+    {
+      "level_db": -30.0,
+      "gain_curve_mean_db": -14.065677398085022,
+      "correlation": 0.9465954335804181
+    },
+    {
+      "level_db": -24.0,
+      "gain_curve_mean_db": -9.508757403184815,
+      "correlation": 0.9465852677910356
+    },
+    {
+      "level_db": -18.0,
+      "gain_curve_mean_db": -4.956147756086149,
+      "correlation": 0.9465825144134001
+    },
+    {
+      "level_db": -12.0,
+      "gain_curve_mean_db": -0.4680226274369513,
+      "correlation": 0.9465835714299906
+    },
+    {
+      "level_db": -6.0,
+      "gain_curve_mean_db": 1.1607279096836849,
+      "correlation": 0.9467316618017685
+    }
+  ],
+  "10000.0": [
+    {
+      "level_db": -30.0,
+      "gain_curve_mean_db": -12.434428420999007,
+      "correlation": 0.9957161686507624
+    },
+    {
+      "level_db": -24.0,
+      "gain_curve_mean_db": -7.876790539209825,
+      "correlation": 0.9957104351098232
+    },
+    {
+      "level_db": -18.0,
+      "gain_curve_mean_db": -3.326675070843633,
+      "correlation": 0.9957093147166718
+    },
+    {
+      "level_db": -12.0,
+      "gain_curve_mean_db": 0.6033515166583262,
+      "correlation": 0.9957990472640199
+    },
+    {
+      "level_db": -6.0,
+      "gain_curve_mean_db": 0.3230849436489096,
+      "correlation": 0.9960598304241463
+    }
+  ]
+}
