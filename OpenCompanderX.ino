@@ -246,6 +246,15 @@ public:
     float inputPeakR = 0.0f;
     float outputPeakL = 0.0f;
     float outputPeakR = 0.0f;
+    float pkInRaw = 0.0f;
+    float pkAfterInputTrim = 0.0f;
+    float pkAfterDecodeGain = 0.0f;
+    float pkAfterDeEmphasis = 0.0f;
+    float pkPreGuard = 0.0f;
+    float pkPostGuard = 0.0f;
+    float pkPreSoftClip = 0.0f;
+    float pkPostSoftClip = 0.0f;
+    float pkPostOutputTrim = 0.0f;
     float inputSumSqL = 0.0f;
     float inputSumSqR = 0.0f;
     float outputSumSqL = 0.0f;
@@ -307,6 +316,7 @@ public:
   void setSaturationThreshold(float v)  { saturationThreshold = clampf(v, 0.70f, 0.99f); }
   void setSaturationKneeDb(float db)    { saturationKneeDb = clampf(db, 0.0f, 12.0f); }
   void setDecoderOperatingMode(DecoderOperatingMode m) { if (decoderMode != m) armOutputSoftStart(); decoderMode = m; recalcDetector(); }
+  void setOutputSoftStartEnabled(bool v) { outputSoftStartEnabled = v; if (!v) outputSoftStartSamplesRemaining = 0; }
   void armOutputSoftStart() { outputSoftStartSamplesRemaining = kOutputSoftStartSamples; }
 
   float getInputTrimDb() const       { return inputTrimDb; }
@@ -448,6 +458,7 @@ private:
   bool saturationSoftfail = OCXProfile::kSaturationSoftfail;
   float saturationThreshold = OCXProfile::kSaturationThreshold;
   float saturationKneeDb = OCXProfile::kSaturationKneeDb;
+  bool outputSoftStartEnabled = true;
   float autoTrimCoeff = 0.0f;
   uint16_t dropoutHoldSamples = 0;
   uint16_t dropoutHoldCounter = 0;
@@ -506,6 +517,15 @@ private:
   float diagOutputCrossSum = 0.0f;
   float diagLowProxySum = 0.0f;
   float diagHighProxySum = 0.0f;
+  float diagPkInRaw = 0.0f;
+  float diagPkAfterInputTrim = 0.0f;
+  float diagPkAfterDecodeGain = 0.0f;
+  float diagPkAfterDeEmphasis = 0.0f;
+  float diagPkPreGuard = 0.0f;
+  float diagPkPostGuard = 0.0f;
+  float diagPkPreSoftClip = 0.0f;
+  float diagPkPostSoftClip = 0.0f;
+  float diagPkPostOutputTrim = 0.0f;
   uint32_t lastReportedInputClipCount = 0;
   uint32_t lastReportedOutputClipCount = 0;
   uint16_t outputSoftStartSamplesRemaining = 0;
@@ -566,8 +586,21 @@ private:
     for (int ch = 0; ch < 2; ++ch) encDcBlock[ch].design(OCXProfile::kFs, encDcBlockHz);
   }
 
+  inline void updatePeak(float &dst, float v) {
+    if (v > dst) dst = v;
+  }
+
   inline float finalizeOutput(float y, float outGain, float roomGain, float clipDrive, float softStartGain) {
-    y = clampf(softClip(y * outGain * roomGain * softStartGain, clipDrive), -1.0f, 1.0f);
+    const float preGuard = y;
+    const float postGuard = preGuard * outGain * roomGain;
+    const float preSoftClip = postGuard * softStartGain;
+    const float postSoftClip = softClip(preSoftClip, clipDrive);
+    updatePeak(diagPkPreGuard, fabsf(preGuard));
+    updatePeak(diagPkPostGuard, fabsf(postGuard));
+    updatePeak(diagPkPreSoftClip, fabsf(preSoftClip));
+    updatePeak(diagPkPostSoftClip, fabsf(postSoftClip));
+    y = clampf(postSoftClip, -1.0f, 1.0f);
+    updatePeak(diagPkPostOutputTrim, fabsf(y));
     if (fabsf(y) > 0.98f) {
       outputClipFlag = true;
       ++outputClipCount;
@@ -631,8 +664,14 @@ private:
     ++diagDecodedSampleCount;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(deemph[0].process(xL * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
-    outR = finalizeOutput(deemph[1].process(xR * gainLin), outputGain, headroomGain, softClipDrive, softStartGain);
+    const float decL = xL * gainLin;
+    const float decR = xR * gainLin;
+    updatePeak(diagPkAfterDecodeGain, fmaxf(fabsf(decL), fabsf(decR)));
+    const float deemL = deemph[0].process(decL);
+    const float deemR = deemph[1].process(decR);
+    updatePeak(diagPkAfterDeEmphasis, fmaxf(fabsf(deemL), fabsf(deemR)));
+    outL = finalizeOutput(deemL, outputGain, headroomGain, softClipDrive, softStartGain);
+    outR = finalizeOutput(deemR, outputGain, headroomGain, softClipDrive, softStartGain);
   }
 
   inline void processEncode(float xL, float xR, float &outL, float &outR, float softStartGain) {
@@ -648,13 +687,20 @@ private:
     diagLastGainDb = gainDb;
     diagLastEnvDb = linToDb(env);
     const float gainLin = dbToLin(gainDb);
-    outL = finalizeOutput(encTilt[0].process(xL * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
-    outR = finalizeOutput(encTilt[1].process(xR * gainLin), encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
+    const float encL = xL * gainLin;
+    const float encR = xR * gainLin;
+    updatePeak(diagPkAfterDecodeGain, fmaxf(fabsf(encL), fabsf(encR)));
+    const float tiltL = encTilt[0].process(encL);
+    const float tiltR = encTilt[1].process(encR);
+    updatePeak(diagPkAfterDeEmphasis, fmaxf(fabsf(tiltL), fabsf(tiltR)));
+    outL = finalizeOutput(tiltL, encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
+    outR = finalizeOutput(tiltR, encOutputGain, encHeadroomGain, encSoftClipDrive, softStartGain);
   }
 
   inline void processStereo(float inL, float inR, float &outL, float &outR) {
+    updatePeak(diagPkInRaw, fmaxf(fabsf(inL), fabsf(inR)));
     float softStartGain = 1.0f;
-    if (outputSoftStartSamplesRemaining > 0) {
+    if (outputSoftStartEnabled && outputSoftStartSamplesRemaining > 0) {
       const float t = 1.0f - ((float)outputSoftStartSamplesRemaining / (float)kOutputSoftStartSamples);
       softStartGain = clampf(t * t, 0.0f, 1.0f);
       --outputSoftStartSamplesRemaining;
@@ -674,6 +720,7 @@ private:
     const float modeInputGain = (mode == MODE_ENCODE) ? encInputGain : inputGain;
     float xL = (mode == MODE_ENCODE ? encDcBlock[0].process(sanitizef(inL) * modeInputGain) : dcBlock[0].process(sanitizef(inL) * modeInputGain));
     float xR = (mode == MODE_ENCODE ? encDcBlock[1].process(sanitizef(inR) * modeInputGain) : dcBlock[1].process(sanitizef(inR) * modeInputGain));
+    updatePeak(diagPkAfterInputTrim, fmaxf(fabsf(xL), fabsf(xR)));
     if (fabsf(xL) > 0.98f) {
       inputClipFlag = true;
       ++inputClipCount;
@@ -750,6 +797,15 @@ void AudioEffectOCXType2CodecStereo::resetSignalDiagnostics() {
   diagOutputCrossSum = 0.0f;
   diagLowProxySum = 0.0f;
   diagHighProxySum = 0.0f;
+  diagPkInRaw = 0.0f;
+  diagPkAfterInputTrim = 0.0f;
+  diagPkAfterDecodeGain = 0.0f;
+  diagPkAfterDeEmphasis = 0.0f;
+  diagPkPreGuard = 0.0f;
+  diagPkPostGuard = 0.0f;
+  diagPkPreSoftClip = 0.0f;
+  diagPkPostSoftClip = 0.0f;
+  diagPkPostOutputTrim = 0.0f;
   interrupts();
 }
 
@@ -771,6 +827,15 @@ AudioEffectOCXType2CodecStereo::DiagSnapshot AudioEffectOCXType2CodecStereo::get
   snap.inputPeakR = diagInputPeakR;
   snap.outputPeakL = diagOutputPeakL;
   snap.outputPeakR = diagOutputPeakR;
+  snap.pkInRaw = diagPkInRaw;
+  snap.pkAfterInputTrim = diagPkAfterInputTrim;
+  snap.pkAfterDecodeGain = diagPkAfterDecodeGain;
+  snap.pkAfterDeEmphasis = diagPkAfterDeEmphasis;
+  snap.pkPreGuard = diagPkPreGuard;
+  snap.pkPostGuard = diagPkPostGuard;
+  snap.pkPreSoftClip = diagPkPreSoftClip;
+  snap.pkPostSoftClip = diagPkPostSoftClip;
+  snap.pkPostOutputTrim = diagPkPostOutputTrim;
   snap.inputSumSqL = diagInputSumSqL;
   snap.inputSumSqR = diagInputSumSqR;
   snap.outputSumSqL = diagOutputSumSqL;
@@ -892,7 +957,7 @@ unsigned long autoStateEnterMs = 0;
 unsigned long lastAutoMeasureMs = 0;
 PresetId currentPreset = PRESET_UNIVERSAL;
 DecoderOperatingMode decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
-PlaybackSafetyMode playbackSafetyMode = SAFETY_STRICT_SAFE;
+PlaybackSafetyMode playbackSafetyMode = SAFETY_PLAYBACK_ADAPTIVE;
 AutoCalState autoCalState = AUTO_IDLE;
 bool autoCalValid = false;
 float autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -1072,6 +1137,7 @@ struct PersistSettings {
   uint8_t activeTransport;
   uint8_t selectedProfile;
   uint8_t decoderOperatingMode;
+  uint8_t playbackSafetyMode;
   uint8_t autoCalValid;
   uint8_t guardEnabled;
   float autoCalReferenceDb;
@@ -1085,7 +1151,7 @@ struct PersistSettings {
   uint32_t checksum;
 };
 static constexpr uint32_t kSettingsMagic = 0x4F435831u;
-static constexpr uint16_t kSettingsVersion = 5;
+static constexpr uint16_t kSettingsVersion = 6;
 static constexpr int kSettingsAddr = 0;
 
 uint32_t settingsChecksum(const uint8_t *p, size_t n) {
@@ -1200,6 +1266,7 @@ void applyEffectiveDecoderSettings() {
   ocx.setHeadroomDb(effectiveHeadroom);
   ocx.setMaxBoostDb(effectiveMaxBoost);
   ocx.setDecoderOperatingMode(decoderOperatingMode);
+  ocx.setOutputSoftStartEnabled(!referenceSafety);
   if (referenceSafety) {
     ocx.setAutoTrimEnabled(false);
     ocx.setAutoTrimMaxDb(0.0f);
@@ -1270,6 +1337,7 @@ void persistSettings() {
   s.activeTransport = static_cast<uint8_t>(activeTransport);
   s.selectedProfile = static_cast<uint8_t>(selectedProfile);
   s.decoderOperatingMode = static_cast<uint8_t>(decoderOperatingMode);
+  s.playbackSafetyMode = static_cast<uint8_t>(playbackSafetyMode);
   s.autoCalValid = autoCalValid ? 1 : 0;
   s.guardEnabled = guardEnabled ? 1 : 0;
   s.autoCalReferenceDb = autoCalReferenceDb;
@@ -1304,7 +1372,8 @@ void loadSettingsOrFactory() {
                   s.deckType <= DECK_DUAL_LW &&
                   s.activeTransport <= TRANSPORT_LW2 &&
                   s.selectedProfile <= PROFILE_COMMON &&
-                  s.decoderOperatingMode <= DECODER_CONTROLLED_RECORD;
+                  s.decoderOperatingMode <= DECODER_CONTROLLED_RECORD &&
+                  s.playbackSafetyMode <= SAFETY_PLAYBACK_ADAPTIVE;
   if (ok) {
     ocx.setMode(static_cast<AudioEffectOCXType2CodecStereo::Mode>(s.mode));
     currentPreset = static_cast<PresetId>(s.presetId);
@@ -1312,6 +1381,7 @@ void loadSettingsOrFactory() {
     activeTransport = static_cast<TransportId>(s.activeTransport);
     selectedProfile = static_cast<ProfileSelect>(s.selectedProfile);
     decoderOperatingMode = static_cast<DecoderOperatingMode>(s.decoderOperatingMode);
+    playbackSafetyMode = static_cast<PlaybackSafetyMode>(s.playbackSafetyMode);
     autoCalValid = s.autoCalValid != 0;
     autoCalReferenceDb = clampf(s.autoCalReferenceDb, -30.0f, -10.0f);
     autoCalOutputTrimDb = clampf(s.autoCalOutputTrimDb, -6.0f, 0.0f);
@@ -1334,6 +1404,7 @@ void loadSettingsOrFactory() {
     activeTransport = TRANSPORT_LW1;
     selectedProfile = PROFILE_SINGLE;
     decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
+    playbackSafetyMode = SAFETY_PLAYBACK_ADAPTIVE;
     profileStore = ProfileStore{};
     autoCalValid = false;
     guardEnabled = true;
@@ -1359,6 +1430,7 @@ void factoryResetSettings() {
   s.activeTransport = static_cast<uint8_t>(TRANSPORT_LW1);
   s.selectedProfile = static_cast<uint8_t>(PROFILE_SINGLE);
   s.decoderOperatingMode = static_cast<uint8_t>(DECODER_STRICT_COMPATIBLE);
+  s.playbackSafetyMode = static_cast<uint8_t>(SAFETY_PLAYBACK_ADAPTIVE);
   s.autoCalValid = 0;
   s.guardEnabled = 1;
   s.autoCalReferenceDb = OCXProfile::kReferenceDb;
@@ -1379,6 +1451,7 @@ void factoryResetSettings() {
   activeTransport = TRANSPORT_LW1;
   selectedProfile = PROFILE_SINGLE;
   decoderOperatingMode = DECODER_STRICT_COMPATIBLE;
+  playbackSafetyMode = SAFETY_PLAYBACK_ADAPTIVE;
   profileStore = ProfileStore{};
   guardEnabled = true;
   guardTrimOffsetDb = 0.0f;
@@ -2367,13 +2440,18 @@ void printPeriodicDiagLine() {
   Serial.print(F(" drift(g/rms/bal)=")); Serial.print(driftGainDb, 2); Serial.print(F("/")); Serial.print(driftOutRmsDb, 2); Serial.print(F("/")); Serial.print(driftBalanceDb, 2);
   Serial.print(F(" stableMs=")); Serial.println(millis() - guardLastStateChangeMs);
 
-  const float marginOutDb = linToDb(1.0f / fmaxf(outPeakMono, 1.0e-6f));
-  Serial.print(F("[DIAG2] pkInRaw=")); Serial.print(inPeakMono, 3);
-  Serial.print(F(" pkPreGuard=")); Serial.print(outPeakMono, 3);
-  Serial.print(F(" pkPostGuard=")); Serial.print(outPeakMono, 3);
-  Serial.print(F(" pkPreClip=")); Serial.print(outPeakMono, 3);
-  Serial.print(F(" pkPostClip=")); Serial.print(outPeakMono, 3);
-  Serial.print(F(" pkOut=")); Serial.print(outPeakMono, 3);
+  const float marginPreSoftClipDb = linToDb(1.0f / fmaxf(d.pkPreSoftClip, 1.0e-6f));
+  const float marginOutDb = linToDb(1.0f / fmaxf(d.pkPostOutputTrim, 1.0e-6f));
+  Serial.print(F("[DIAG2] pkInRaw=")); Serial.print(d.pkInRaw, 3);
+  Serial.print(F(" pkAfterInputTrim=")); Serial.print(d.pkAfterInputTrim, 3);
+  Serial.print(F(" pkAfterDecodeGain=")); Serial.print(d.pkAfterDecodeGain, 3);
+  Serial.print(F(" pkAfterDeEmp=")); Serial.print(d.pkAfterDeEmphasis, 3);
+  Serial.print(F(" pkPreGuard=")); Serial.print(d.pkPreGuard, 3);
+  Serial.print(F(" pkPostGuard=")); Serial.print(d.pkPostGuard, 3);
+  Serial.print(F(" pkPreClip=")); Serial.print(d.pkPreSoftClip, 3);
+  Serial.print(F(" pkPostClip=")); Serial.print(d.pkPostSoftClip, 3);
+  Serial.print(F(" pkOut=")); Serial.print(d.pkPostOutputTrim, 3);
+  Serial.print(F(" marginPreClipDb=")); Serial.print(marginPreSoftClipDb, 2);
   Serial.print(F(" marginOutDb=")); Serial.print(marginOutDb, 2);
   Serial.print(F(" gCmd=")); Serial.print(d.lastGainDb, 2);
   Serial.print(F(" gApplied=")); Serial.print(d.avgGainDb, 2);

@@ -306,6 +306,35 @@ def test_source_sanity_no_html_contamination_in_ino():
     assert all(marker not in lowered for marker in bad_markers)
 
 
+def test_firmware_safety_mode_default_and_persistence_wired():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    assert "enum PlaybackSafetyMode : uint8_t" in ino
+    assert "SAFETY_STRICT_REFERENCE" in ino
+    assert "SAFETY_STRICT_SAFE" in ino
+    assert "SAFETY_PLAYBACK_ADAPTIVE" in ino
+    assert "PlaybackSafetyMode playbackSafetyMode = SAFETY_PLAYBACK_ADAPTIVE;" in ino
+    assert "uint8_t playbackSafetyMode;" in ino
+    assert "s.playbackSafetyMode = static_cast<uint8_t>(playbackSafetyMode);" in ino
+    assert "playbackSafetyMode = static_cast<PlaybackSafetyMode>(s.playbackSafetyMode);" in ino
+    assert "kSettingsVersion = 6" in ino
+
+
+def test_firmware_diag2_reports_real_stage_peaks():
+    ino = (ROOT / "OpenCompanderX.ino").read_text()
+    for token in [
+        "pkAfterInputTrim",
+        "pkAfterDecodeGain",
+        "pkAfterDeEmp",
+        "pkPreGuard",
+        "pkPostGuard",
+        "pkPreClip",
+        "pkPostClip",
+        "marginPreClipDb",
+        "marginOutDb",
+    ]:
+        assert token in ino
+
+
 def test_sim_dropout_hold_requires_hf_and_level_drop():
     fs = 44_100
     p = DecoderParams.from_profile(
